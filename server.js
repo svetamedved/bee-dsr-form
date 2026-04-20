@@ -134,7 +134,7 @@ function formatIIFDate(dateStr) {
   return `${m}/${d}/${y}`;
 }
 
-app.get('*', (req, res) => {
+app.get('/{*path}', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
