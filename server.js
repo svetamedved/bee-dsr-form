@@ -490,7 +490,10 @@ app.get('/api/admin/submissions/:id/iif', authRequired, adminRequired, async (re
   );
   const sub = rows[0];
   if (!sub || !sub.iif_content) return res.status(404).json({ error: 'No approved IIF' });
-  const fname = `DSR_${sub.location_name.replace(/\s+/g,'_')}_${sub.report_date.toISOString ? sub.report_date.toISOString().slice(0,10) : sub.report_date}.iif`;
+  // Sanitize filename: strip non-ASCII (e.g. em-dashes) — Node rejects them in Content-Disposition.
+  const safeName = sub.location_name.replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, '_').replace(/_+/g, '_');
+  const dateStr = sub.report_date.toISOString ? sub.report_date.toISOString().slice(0,10) : sub.report_date;
+  const fname = `DSR_${safeName}_${dateStr}.iif`;
   res.setHeader('Content-Type', 'text/plain');
   res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
   res.send(sub.iif_content);
