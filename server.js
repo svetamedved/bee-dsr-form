@@ -40,12 +40,17 @@ app.post('/api/reports', async (req, res) => {
     const vendors = [
       { name: 'Maverick', type: 'sweepstakes', i: d.maverick_in, o: d.maverick_out },
       { name: 'Rimfire', type: 'sweepstakes', i: d.rimfire_in, o: d.rimfire_out },
-      { name: 'Phoenix', type: 'sweepstakes', i: d.phoenix_in, o: d.phoenix_out },
       { name: 'Riversweep', type: 'sweepstakes', i: d.riversweep_in, o: d.riversweep_out },
       { name: 'Golden Dragon', type: 'sweepstakes', i: d.golden_dragon_in, o: d.golden_dragon_out },
     ];
-    if (d.ep_total || d.ep_no_fp || d.ep_fp) {
-      vendors.push({ name: 'Easy Play', type: 'coam', i: d.ep_total, o: 0 });
+    if (d.ep_total) {
+      vendors.push({ name: 'COAMs', type: 'coam', i: d.ep_total, o: 0 });
+    }
+    if (d.cardinal_in || d.cardinal_out) {
+      vendors.push({ name: 'Cardinal Xpress', type: 'skill', i: d.cardinal_in || 0, o: d.cardinal_out || 0 });
+    }
+    if (d.redplum_in || d.redplum_out) {
+      vendors.push({ name: 'Red Plum', type: 'skill', i: d.redplum_in || 0, o: d.redplum_out || 0 });
     }
     for (const v of vendors) {
       if (!v.i && !v.o) continue;
@@ -54,12 +59,23 @@ app.post('/api/reports', async (req, res) => {
         [d.location, d.report_date, d.manager, v.name, v.type, v.i || 0, v.o || 0, (v.i || 0) - (v.o || 0)]
       );
     }
-    if (d.cabinets && d.cabinets.length) {
-      for (const cab of d.cabinets) {
+    // Cardinal cabinets
+    if (d.cardinal_cabinets && d.cardinal_cabinets.length) {
+      for (const cab of d.cardinal_cabinets) {
         if (!cab.in && !cab.out) continue;
         await conn.execute(
-          `INSERT INTO daily_cabinet_revenue (location, report_date, cabinet_name, terminal_id, serial_num, total_in, total_out, net_revenue, skill_deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [d.location, d.report_date, cab.name, cab.tid || null, cab.serial || null, cab.in || 0, cab.out || 0, (cab.in || 0) - (cab.out || 0), d.skill_deposit || 0]
+          `INSERT INTO daily_cabinet_revenue (location, report_date, cabinet_name, terminal_id, serial_num, total_in, total_out, net_revenue, skill_deposit, vendor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [d.location, d.report_date, cab.name, null, cab.serial || null, cab.in || 0, cab.out || 0, (cab.in || 0) - (cab.out || 0), d.skill_deposit || 0, 'Cardinal']
+        );
+      }
+    }
+    // Red Plum cabinets
+    if (d.redplum_cabinets && d.redplum_cabinets.length) {
+      for (const cab of d.redplum_cabinets) {
+        if (!cab.in && !cab.out) continue;
+        await conn.execute(
+          `INSERT INTO daily_cabinet_revenue (location, report_date, cabinet_name, terminal_id, serial_num, total_in, total_out, net_revenue, skill_deposit, vendor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [d.location, d.report_date, cab.name, cab.tid || null, cab.serial || null, cab.in || 0, cab.out || 0, (cab.in || 0) - (cab.out || 0), d.skill_deposit || 0, 'Red Plum']
         );
       }
     }
@@ -120,8 +136,8 @@ app.post('/api/export/iif', (req, res) => {
     lines.push('ENDTRNS');
   }
   if (d.ep_total) {
-    lines.push(`TRNS\tDEPOSIT\t${date}\tChecking Account\t\t${loc}\t${d.ep_total}\tEasy Play - ${loc}`);
-    lines.push(`SPL\tDEPOSIT\t${date}\tCOAM Revenue\t\t${loc}\t${-d.ep_total}\tEasy Play`);
+    lines.push(`TRNS\tDEPOSIT\t${date}\tChecking Account\t\t${loc}\t${d.ep_total}\tCOAMs - ${loc}`);
+    lines.push(`SPL\tDEPOSIT\t${date}\tCOAM Revenue\t\t${loc}\t${-d.ep_total}\tCOAMs`);
     lines.push('ENDTRNS');
   }
   res.setHeader('Content-Type', 'text/plain');

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import { jsPDF } from "jspdf";
 
 const LOCS = ["BE Station Brady","BES 2 Rockport","BES 4 Kingsbury","BES 6 Buchanan Dam","BES 7 San Antonio","BES 8 Pflugerville","BES 10 - Crossroads Robstown","BES Giddings","Icehouse in SA","Lucky Cosmos Buda","MT 4 Corsicana","MT 5 Conroe","Music City","My Office Club","Skillzone 1 Porter","Skillzone 2 Mt Pleasant","Speakeasy Lakeway","Starlite Saloon","Whiskey Room"];
-const VEND = [{k:"mav",l:"Maverick",c:"#FF8A5B",bg:"#FFEDE2"},{k:"rim",l:"Rimfire",c:"#8FB89A",bg:"#EAF3EC"},{k:"phx",l:"Phoenix",c:"#9B6B9E",bg:"#F0E6F1"},{k:"river",l:"Riversweep",c:"#4A9BAE",bg:"#E3F0F4"},{k:"gd",l:"Golden Dragon",c:"#D4A027",bg:"#FBF2D8"}];
+const VEND = [{k:"mav",l:"Maverick",c:"#FF8A5B",bg:"#FFEDE2"},{k:"rim",l:"Rimfire",c:"#8FB89A",bg:"#EAF3EC"},{k:"river",l:"Riversweep",c:"#4A9BAE",bg:"#E3F0F4"},{k:"gd",l:"Golden Dragon",c:"#D4A027",bg:"#FBF2D8"}];
 const fmt = n => { if (!n) return "$0.00"; const a = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); return n < 0 ? `-$${a}` : `$${a}`; };
 
 function F({ label, value, onChange, disabled, highlight, negative, emphasize }) {
@@ -34,6 +34,8 @@ export default function App() {
   const [loc, setLoc] = useState("");
   const [dt, setDt] = useState(new Date().toISOString().split("T")[0]);
   const [mgr, setMgr] = useState("");
+  const [posUnion, setPosUnion] = useState(false);
+  const [posSemnox, setPosSemnox] = useState(false);
   const [gc, setGc] = useState(Object.fromEntries(VEND.map(v => [v.k, {i:0, o:0}])));
   const ug = useCallback((k, f, v) => setGc(p => ({...p, [k]: {...p[k], [f]: v}})), []);
   const [cc, setCc] = useState({tot:0, fee:0});
@@ -56,7 +58,8 @@ export default function App() {
   const [skillDeposit, setSkillDeposit] = useState(0);
   const [s, setS] = useState({epCard:0, epCredits:0, bar:0, kitchen:0, gcSales:0, retail:0, comps:0, disc:0, spills:0, taxes:0, tips:0, cc:0, barCC:0, nonCashFees:0, gcRedemptions:0, gcConversions:0, rec:0});
   const [compDesc, setCompDesc] = useState("");
-  const [shortage, setShortage] = useState({gcName:"", gcAmt:0, skillName:"", skillAmt:0, salesName:"", salesAmt:0});
+  const [shortages, setShortages] = useState([{type:"GC", name:"", amt:0},{type:"Skill", name:"", amt:0},{type:"Sales", name:"", amt:0}]);
+  const uShort = (i,f,v) => setShortages(p=>p.map((s,idx)=>idx===i?{...s,[f]:v}:s));
   const [poolDrop, setPoolDrop] = useState(0);
   const [notes, setNotes] = useState("");
   const [ok, setOk] = useState(false);
@@ -82,9 +85,9 @@ export default function App() {
     if (!loc) { alert("Select a location"); return; }
     const payload = {
       location: loc, report_date: dt, manager: mgr,
+      pos_union: posUnion, pos_semnox: posSemnox,
       maverick_in: gc.mav.i, maverick_out: gc.mav.o,
       rimfire_in: gc.rim.i, rimfire_out: gc.rim.o,
-      phoenix_in: gc.phx.i, phoenix_out: gc.phx.o,
       riversweep_in: gc.river.i, riversweep_out: gc.river.o,
       golden_dragon_in: gc.gd.i, golden_dragon_out: gc.gd.o,
       ep_total: ep.total,
@@ -251,9 +254,7 @@ export default function App() {
     line("TOTAL CASH DEPOSIT", fmt(c.tcd), true);
 
     heading("EMPLOYEE SHORTAGES");
-    if (shortage.gcName || shortage.gcAmt) line(`GC: ${shortage.gcName||"—"}`, fmt(shortage.gcAmt));
-    if (shortage.skillName || shortage.skillAmt) line(`Skill: ${shortage.skillName||"—"}`, fmt(shortage.skillAmt));
-    if (shortage.salesName || shortage.salesAmt) line(`Sales: ${shortage.salesName||"—"}`, fmt(shortage.salesAmt));
+    shortages.forEach(sh => { if (sh.name || sh.amt) line(`${sh.type}: ${sh.name||"—"}`, fmt(sh.amt)); });
 
     if (notes) { heading("NOTES"); doc.setFont("helvetica","normal"); doc.setFontSize(10); const lines = doc.splitTextToSize(notes, rm - lm); doc.text(lines, lm, y); y += lines.length * 14; }
 
@@ -294,9 +295,7 @@ export default function App() {
     add("Taxes", s.taxes); add("Tips", s.tips); add("Recoveries", s.rec);
     add("GC Redemptions", s.gcRedemptions); add("GC Conversions", s.gcConversions); add("Pool Drop", poolDrop);
     add("Total Cash Deposit", c.tcd);
-    add("Shortage GC Name", shortage.gcName); add("Shortage GC Amt", shortage.gcAmt);
-    add("Shortage Skill Name", shortage.skillName); add("Shortage Skill Amt", shortage.skillAmt);
-    add("Shortage Sales Name", shortage.salesName); add("Shortage Sales Amt", shortage.salesAmt);
+    shortages.forEach((sh,i) => { add(`Shortage ${i+1} Type`, sh.type); add(`Shortage ${i+1} Name`, sh.name); add(`Shortage ${i+1} Amt`, sh.amt); });
     add("Notes", notes);
     add("GC Deposit", c.agd); add("Skill Deposit Total", skillDeposit); add("Cash Deposit", c.tcd); add("Total Deposit", c.td);
     const csv = h.join(",") + "\n" + v.join(",") + "\n";
@@ -336,9 +335,7 @@ export default function App() {
     if (c.cxCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCardinal Xpress Revenue\t${loc}\t${(-c.cxCabNet).toFixed(2)}\tCardinal Net`);
     if (c.rpCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRed Plum Revenue\t${loc}\t${(-c.rpCabNet).toFixed(2)}\tRed Plum Net`);
     // Shortages
-    if (shortage.gcAmt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${shortage.gcName||loc}\t${(-shortage.gcAmt).toFixed(2)}\tGC Shortage`);
-    if (shortage.skillAmt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${shortage.skillName||loc}\t${(-shortage.skillAmt).toFixed(2)}\tSkill Shortage`);
-    if (shortage.salesAmt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${shortage.salesName||loc}\t${(-shortage.salesAmt).toFixed(2)}\tSales Shortage`);
+    shortages.forEach(sh => { if (sh.amt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${sh.name||loc}\t${(-sh.amt).toFixed(2)}\t${sh.type} Shortage`); });
     lines.push("ENDTRNS");
     const iif = lines.join("\r\n") + "\r\n";
     dl(new Blob([iif], { type: "application/octet-stream" }), `DSR_${dateSuffix}.iif`);
@@ -376,6 +373,14 @@ export default function App() {
         <select value={loc} onChange={e=>setLoc(e.target.value)} style={{flex:2,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,background:"#FFF",color:loc?"#000":"#9C8878",fontWeight:loc?700:400}}><option value="">Select location...</option>{LOCS.map(l=><option key={l}>{l}</option>)}</select>
         <input type="date" value={dt} onChange={e=>setDt(e.target.value)} style={{flex:1,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:600}}/>
         <input value={mgr} onChange={e=>setMgr(e.target.value)} placeholder="Manager" style={{flex:1,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:500}}/>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
+          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,fontWeight:700,color:"#000",cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={posUnion} onChange={e=>setPosUnion(e.target.checked)} style={{width:16,height:16,accentColor:"#4A9BAE",cursor:"pointer"}}/>Union
+          </label>
+          <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,fontWeight:700,color:"#000",cursor:"pointer",userSelect:"none"}}>
+            <input type="checkbox" checked={posSemnox} onChange={e=>setPosSemnox(e.target.checked)} style={{width:16,height:16,accentColor:"#9B6B9E",cursor:"pointer"}}/>Semnox
+          </label>
+        </div>
       </div>
       <div className="dsr-header-actions">
         <div className="dsr-header-total"><div style={{fontSize:8,color:"#6B5A4E",letterSpacing:2,fontWeight:800}}>TOTAL</div><div style={{fontSize:16,fontWeight:900,color:"#000",fontFamily:"'JetBrains Mono',monospace"}}>{fmt(c.td)}</div></div>
@@ -402,9 +407,9 @@ export default function App() {
     </div></div>
 
     <div className="cards-grid">
-      {/* 1. Sales Detail */}
-      <div className="card-sales">
-        <Card title="Sales Detail" icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.tcd)}>
+      {/* 1. Sales Detail (Union POS) */}
+      {posUnion && <div className="card-sales">
+        <Card title="Sales Detail (Union)" icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.tcd)}>
           <div className="sales-cols" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
             <div>
               <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
@@ -437,7 +442,7 @@ export default function App() {
             </div>
           </div>
         </Card>
-      </div>
+      </div>}
 
       {/* 2. Skill Vending Details */}
       <div className="card-rp">
@@ -525,9 +530,9 @@ export default function App() {
         </Card>
       </div>
 
-      {/* 4. COAMs */}
-      <div className="card-ep">
-        <Card title="COAMs" icon="🎯" color="#4A9BAE" bg="#E3F0F4" badge={fmt(c.epVariance)}>
+      {/* 4. COAMs (Semnox POS) */}
+      {posSemnox && <div className="card-ep">
+        <Card title="COAMs (Semnox)" icon="🎯" color="#4A9BAE" bg="#E3F0F4" badge={fmt(c.epVariance)}>
           <F label="COAMs Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
           <F label="COAMs (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
           <F label="COAMs (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
@@ -536,7 +541,7 @@ export default function App() {
             <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance<0} emphasize/>
           </div>
         </Card>
-      </div>
+      </div>}
 
       {/* 5. GC Credit Cards */}
       <div className="card-cc">
@@ -591,18 +596,16 @@ export default function App() {
       {/* 9. Employee Shortages */}
       <div className="card-shortages">
         <Card title="Employee Shortages" icon="⚠️" color="#F4A5B0" bg="#FCEFF1">
-          <div style={{display:"grid",gridTemplateColumns:"60px 1fr 90px",gap:5,alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:12,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase"}}>GC</div>
-            <input value={shortage.gcName} onChange={e=>setShortage(p=>({...p,gcName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
-            <input type="number" step="0.01" value={shortage.gcAmt||""} onChange={e=>setShortage(p=>({...p,gcAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
-            <div style={{fontSize:12,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase"}}>Skill</div>
-            <input value={shortage.skillName} onChange={e=>setShortage(p=>({...p,skillName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
-            <input type="number" step="0.01" value={shortage.skillAmt||""} onChange={e=>setShortage(p=>({...p,skillAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
-            <div style={{fontSize:12,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase"}}>Sales</div>
-            <input value={shortage.salesName} onChange={e=>setShortage(p=>({...p,salesName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
-            <input type="number" step="0.01" value={shortage.salesAmt||""} onChange={e=>setShortage(p=>({...p,salesAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
-          </div>
-          <div style={{fontSize:11,color:"#6B5A4E",fontStyle:"italic",paddingTop:3}}>Deduct from Employee Paycheck</div>
+          {shortages.map((sh, i) => <div key={i} style={{display:"grid",gridTemplateColumns:"60px 1fr 90px 24px",gap:5,alignItems:"center",marginBottom:4}}>
+            <select value={sh.type} onChange={e=>uShort(i,"type",e.target.value)} style={{padding:"4px 2px",border:"2px solid #B8A99E",borderRadius:6,fontSize:12,fontWeight:800,color:"#3D2E1F",background:"#FFF",cursor:"pointer"}}>
+              <option>GC</option><option>Skill</option><option>Sales</option>
+            </select>
+            <input value={sh.name} onChange={e=>uShort(i,"name",e.target.value)} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
+            <input type="number" step="0.01" value={sh.amt||""} onChange={e=>uShort(i,"amt",+e.target.value||0)} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+            {shortages.length>1 && <button onClick={()=>setShortages(p=>p.filter((_,idx)=>idx!==i))} style={{padding:0,border:"none",background:"transparent",color:"#A03030",fontSize:16,cursor:"pointer",fontWeight:900,lineHeight:1}}>×</button>}
+          </div>)}
+          <button onClick={()=>setShortages(p=>[...p,{type:"GC",name:"",amt:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:12,fontWeight:800,cursor:"pointer",marginTop:2}}>+ ADD ANOTHER EMPLOYEE</button>
+          <div style={{fontSize:11,color:"#6B5A4E",fontStyle:"italic",paddingTop:5}}>Deduct from Employee Paycheck</div>
         </Card>
       </div>
 
