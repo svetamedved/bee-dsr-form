@@ -39,13 +39,20 @@ export default function App() {
   const [comps, setComps] = useState({retail:0, kitchen:0, entered:0});
   const [cash, setCash] = useState({safe:0, gcToSafe:0, safeToGc:0, barToSafe:0, safeToBar:0, miscPayout:0, drawer:0, endSafe:0, bleed:0, bleedReason:""});
   const [ep, setEp] = useState({total:0, noFP:0, fp:0});
-  const [rp, setRp] = useState({in:0, out:0, skillDeposit:0});
-  const [cabinets, setCabinets] = useState([
+  const [cardinal, setCardinal] = useState({in:0, out:0});
+  const [cardCabs, setCardCabs] = useState([
+    {name:"Cabinet 1", serial:"", in:0, out:0},
+    {name:"Cabinet 2", serial:"", in:0, out:0},
+    {name:"Cabinet 3", serial:"", in:0, out:0},
+  ]);
+  const ucx = (i, f, v) => setCardCabs(p => p.map((c, idx) => idx===i ? {...c, [f]: v} : c));
+  const [rp, setRp] = useState({in:0, out:0});
+  const [rpCabs, setRpCabs] = useState([
     {name:"Cabinet 1", tid:"", serial:"", in:0, out:0},
     {name:"Cabinet 2", tid:"", serial:"", in:0, out:0},
-    {name:"Cabinet 3", tid:"", serial:"", in:0, out:0},
   ]);
-  const uc = (i, f, v) => setCabinets(p => p.map((c, idx) => idx===i ? {...c, [f]: v} : c));
+  const urc = (i, f, v) => setRpCabs(p => p.map((c, idx) => idx===i ? {...c, [f]: v} : c));
+  const [skillDeposit, setSkillDeposit] = useState(0);
   const [s, setS] = useState({epCard:0, epCredits:0, bar:0, kitchen:0, gcSales:0, retail:0, comps:0, disc:0, spills:0, taxes:0, tips:0, cc:0, barCC:0, nonCashFees:0, gcRedemptions:0, gcConversions:0, rec:0});
   const [compDesc, setCompDesc] = useState("");
   const [shortage, setShortage] = useState({gcName:"", gcAmt:0, skillName:"", skillAmt:0, salesName:"", salesAmt:0});
@@ -60,13 +67,15 @@ export default function App() {
     const ng = ti - to, ncc = cc.tot - cc.fee, agd = ng - ncc;
     const compsVar = comps.entered - (comps.retail + comps.kitchen);
     const epTotal = ep.noFP + ep.fp, epVariance = ep.total - epTotal;
+    const cxNet = cardinal.in - cardinal.out;
+    const cxCabNet = cardCabs.reduce((sum, c) => sum + (c.in - c.out), 0);
     const rpNet = rp.in - rp.out;
-    const cabNet = cabinets.reduce((sum, c) => sum + (c.in - c.out), 0);
+    const rpCabNet = rpCabs.reduce((sum, c) => sum + (c.in - c.out), 0);
     const endCash = cash.safe + cash.drawer;
     const ns = s.bar + s.kitchen + s.retail + s.gcSales + s.epCard + s.epCredits - s.comps - s.disc - s.spills;
     const tcd = ns - s.cc - s.barCC - s.nonCashFees + s.rec + s.taxes + s.tips + s.gcRedemptions - s.gcConversions;
-    return { vn, ti, to, ng, ncc, agd, compsVar, epTotal, epVariance, rpNet, cabNet, endCash, ns, tcd, td: agd + tcd + rp.skillDeposit };
-  }, [gc, cc, comps, cash, ep, rp, cabinets, s]);
+    return { vn, ti, to, ng, ncc, agd, compsVar, epTotal, epVariance, cxNet, cxCabNet, rpNet, rpCabNet, endCash, ns, tcd, td: agd + tcd + skillDeposit };
+  }, [gc, cc, comps, cash, ep, cardinal, cardCabs, rp, rpCabs, skillDeposit, s]);
 
   const handleSubmit = async () => {
     if (!loc) { alert("Select a location"); return; }
@@ -78,8 +87,11 @@ export default function App() {
       riversweep_in: gc.river.i, riversweep_out: gc.river.o,
       golden_dragon_in: gc.gd.i, golden_dragon_out: gc.gd.o,
       ep_total: ep.total,
-      cabinets: cabinets,
-      skill_deposit: rp.skillDeposit,
+      cardinal_in: cardinal.in, cardinal_out: cardinal.out,
+      cardinal_cabinets: cardCabs,
+      redplum_in: rp.in, redplum_out: rp.out,
+      redplum_cabinets: rpCabs,
+      skill_deposit: skillDeposit,
     };
     try {
       const r = await fetch("/api/reports", {
@@ -185,31 +197,63 @@ export default function App() {
       </div>
 
       <div className="card-rp">
-        <Card title="Red Plum - Skill Games" icon="🎮" color="#F4A5B0" bg="#FCEFF1" badge={fmt(rp.skillDeposit)}>
+        <Card title="Skill Vending Details" icon="🎮" color="#F4A5B0" bg="#FCEFF1" badge={fmt(skillDeposit)}>
+          {/* Cardinal Xpress */}
+          <div style={{fontSize:10,color:"#000",marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #D4A027",paddingBottom:3}}>Cardinal Xpress</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"4px 10px"}}>
-            <F label="Red Plum In" value={rp.in} onChange={v=>setRp(p=>({...p,in:v}))}/>
-            <F label="Red Plum Out" value={rp.out} onChange={v=>setRp(p=>({...p,out:v}))}/>
-            <F label="Net-CX" value={c.rpNet.toFixed(2)} disabled highlight/>
-            <F label="Skill Deposit" value={rp.skillDeposit} onChange={v=>setRp(p=>({...p,skillDeposit:v}))} emphasize/>
+            <F label="Cardinal In" value={cardinal.in} onChange={v=>setCardinal(p=>({...p,in:v}))}/>
+            <F label="Cardinal Out" value={cardinal.out} onChange={v=>setCardinal(p=>({...p,out:v}))}/>
+            <F label="NET - CX" value={c.cxNet.toFixed(2)} disabled highlight/>
           </div>
           <div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed #C5B5A8"}}>
-            <div style={{fontSize:9,color:"#6B5A4E",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Per-Cabinet Breakdown</div>
-            {cabinets.map((cab, i) => <div key={i} style={{background:"#FFFDF9",padding:"6px 8px",borderRadius:6,marginBottom:4,border:"1px solid #F0E6F1"}}>
+            <div style={{fontSize:9,color:"#6B5A4E",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Cardinal Cabinets</div>
+            {cardCabs.map((cab, i) => <div key={i} style={{background:"#FFFDF9",padding:"6px 8px",borderRadius:6,marginBottom:4,border:"1px solid #FBF2D8"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
-                <span style={{fontSize:11,fontWeight:900,color:"#9B6B9E",fontFamily:"'JetBrains Mono',monospace",minWidth:20}}>#{i+1}</span>
-                <input value={cab.name} onChange={e=>uc(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,boxSizing:"border-box",fontWeight:600}}/>
-                <input value={cab.tid} onChange={e=>uc(i,"tid",e.target.value)} placeholder="TID" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
-                <input value={cab.serial} onChange={e=>uc(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 60px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
+                <span style={{fontSize:11,fontWeight:900,color:"#D4A027",fontFamily:"'JetBrains Mono',monospace",minWidth:20}}>#{i+1}</span>
+                <input value={cab.name} onChange={e=>ucx(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,boxSizing:"border-box",fontWeight:600}}/>
+                <input value={cab.serial} onChange={e=>ucx(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
               </div>
               <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 70px",gap:6,alignItems:"center"}}>
                 <div style={{fontSize:8,color:"#6B5A4E",fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>$ IN/OUT</div>
-                <input type="number" step="0.01" value={cab.in||""} onChange={e=>uc(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FCEFF1",fontWeight:500}}/>
-                <input type="number" step="0.01" value={cab.out||""} onChange={e=>uc(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FCEFF1",fontWeight:500}}/>
+                <input type="number" step="0.01" value={cab.in||""} onChange={e=>ucx(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FBF2D8",fontWeight:500}}/>
+                <input type="number" step="0.01" value={cab.out||""} onChange={e=>ucx(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FBF2D8",fontWeight:500}}/>
                 <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:900,textAlign:"right",color:(cab.in-cab.out)<0?"#A03030":"#000"}}>{fmt(cab.in-cab.out)}</span>
               </div>
             </div>)}
-            <button onClick={()=>setCabinets(p=>[...p,{name:`Cabinet ${p.length+1}`,tid:"",serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #000",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer"}}>+ ADD CABINET</button>
-            <F label="Total Cabinets Net RP" value={c.cabNet.toFixed(2)} disabled highlight emphasize/>
+            <button onClick={()=>setCardCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #D4A027",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD CARDINAL CABINET</button>
+            <F label="Total Cardinal Net CX" value={c.cxCabNet.toFixed(2)} disabled highlight emphasize/>
+          </div>
+
+          {/* Red Plum */}
+          <div style={{fontSize:10,color:"#000",marginTop:12,marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #F4A5B0",paddingBottom:3}}>Red Plum</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"4px 10px"}}>
+            <F label="Red Plum In" value={rp.in} onChange={v=>setRp(p=>({...p,in:v}))}/>
+            <F label="Red Plum Out" value={rp.out} onChange={v=>setRp(p=>({...p,out:v}))}/>
+            <F label="NET - RP" value={c.rpNet.toFixed(2)} disabled highlight/>
+          </div>
+          <div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed #C5B5A8"}}>
+            <div style={{fontSize:9,color:"#6B5A4E",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Red Plum Cabinets</div>
+            {rpCabs.map((cab, i) => <div key={i} style={{background:"#FFFDF9",padding:"6px 8px",borderRadius:6,marginBottom:4,border:"1px solid #F0E6F1"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,fontWeight:900,color:"#9B6B9E",fontFamily:"'JetBrains Mono',monospace",minWidth:20}}>#{i+1}</span>
+                <input value={cab.name} onChange={e=>urc(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,boxSizing:"border-box",fontWeight:600}}/>
+                <input value={cab.tid} onChange={e=>urc(i,"tid",e.target.value)} placeholder="TID" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
+                <input value={cab.serial} onChange={e=>urc(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 60px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 70px",gap:6,alignItems:"center"}}>
+                <div style={{fontSize:8,color:"#6B5A4E",fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>$ IN/OUT</div>
+                <input type="number" step="0.01" value={cab.in||""} onChange={e=>urc(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FCEFF1",fontWeight:500}}/>
+                <input type="number" step="0.01" value={cab.out||""} onChange={e=>urc(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FCEFF1",fontWeight:500}}/>
+                <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:900,textAlign:"right",color:(cab.in-cab.out)<0?"#A03030":"#000"}}>{fmt(cab.in-cab.out)}</span>
+              </div>
+            </div>)}
+            <button onClick={()=>setRpCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,tid:"",serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD RED PLUM CABINET</button>
+            <F label="Total Red Plum Net RP" value={c.rpCabNet.toFixed(2)} disabled highlight emphasize/>
+          </div>
+
+          {/* Combined Skill Deposit */}
+          <div style={{borderTop:"2px solid #000",marginTop:10,paddingTop:6}}>
+            <F label="Skill Deposit" value={skillDeposit} onChange={setSkillDeposit} emphasize/>
           </div>
         </Card>
       </div>
@@ -313,7 +357,7 @@ export default function App() {
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>POINTS IN</div><div style={{fontSize:17,fontWeight:900,color:"#FFF4EC"}}>{fmt(c.ti)}</div></div>
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>PRIZES OUT</div><div style={{fontSize:17,fontWeight:900,color:"#FFB5A0"}}>{fmt(c.to)}</div></div>
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>GC DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.agd)}</div></div>
-        <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>SKILL DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(rp.skillDeposit)}</div></div>
+        <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>SKILL DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(skillDeposit)}</div></div>
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>CASH DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.tcd)}</div></div>
         <div style={{borderLeft:"2px solid #FAD6A5",paddingLeft:12}}><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>TOTAL DEPOSIT</div><div style={{fontSize:22,fontWeight:900,color:"#FCE8C8"}}>{fmt(c.td)}</div></div>
       </div>
