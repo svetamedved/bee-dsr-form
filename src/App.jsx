@@ -6,15 +6,15 @@ const fmt = n => { if (!n) return "$0.00"; const a = Math.abs(n).toFixed(2).repl
 
 function F({ label, value, onChange, disabled, highlight, negative, emphasize }) {
   return <div style={{display:"flex",alignItems:"center",padding:emphasize?"6px 0":"3px 0",borderBottom:"1px solid #F5EBE0",gap:6,minWidth:0}}>
-    <span style={{flex:1,fontSize:emphasize?12:11,color:emphasize?"#000":"#6B5A4E",lineHeight:1.2,fontWeight:emphasize?700:400,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={label}>{label}</span>
-    <input type="number" step="0.01" value={value===0&&!disabled?"":value} onChange={e=>onChange?.(+e.target.value||0)} disabled={disabled} placeholder="0.00" style={{width:emphasize?110:95,flexShrink:0,padding:emphasize?"5px 8px":"4px 7px",border:disabled?"none":"1.5px solid #E8D5C4",borderRadius:5,fontSize:emphasize?12:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",background:disabled?(highlight?"#000":negative?"#FFE8E8":"#FAF3EB"):"#FFFDF9",color:disabled?(negative?"#A03030":highlight?"#FFEAC2":"#000"):"#000",fontWeight:disabled?900:500,boxSizing:"border-box"}}/>
+    <span style={{flex:1,fontSize:emphasize?13:12,color:emphasize?"#000":"#3D2E1F",lineHeight:1.3,fontWeight:emphasize?700:500,minWidth:0}}>{label}</span>
+    <input type="number" step="0.01" value={value===0&&!disabled?"":value} onChange={e=>onChange?.(+e.target.value||0)} disabled={disabled} placeholder="0.00" style={{width:emphasize?120:105,flexShrink:0,padding:"5px 8px",border:disabled?"none":"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",background:disabled?(highlight?"#000":negative?"#FFE8E8":"#FAF3EB"):"#FFF",color:disabled?(negative?"#A03030":highlight?"#FFEAC2":"#000"):"#1A1A1A",fontWeight:disabled?900:600,boxSizing:"border-box"}}/>
   </div>;
 }
 
 function Text({ label, value, onChange, placeholder }) {
   return <div style={{padding:"3px 0"}}>
-    <label style={{fontSize:9,color:"#9C8878",display:"block",marginBottom:2,textTransform:"uppercase",letterSpacing:.5}}>{label}</label>
-    <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"5px 7px",border:"1.5px solid #E8D5C4",borderRadius:5,fontSize:11,boxSizing:"border-box",background:"#FFFDF9",color:"#000"}}/>
+    <label style={{fontSize:11,color:"#3D2E1F",display:"block",marginBottom:2,textTransform:"uppercase",letterSpacing:.5,fontWeight:600}}>{label}</label>
+    <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"6px 8px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
   </div>;
 }
 
@@ -22,7 +22,7 @@ function Card({ title, icon, color, bg, badge, children }) {
   return <div style={{background:"#FFFDF9",borderRadius:12,overflow:"hidden",boxShadow:"0 2px 10px #E8D5C455, 0 0 0 1px #F5EBE0",display:"flex",flexDirection:"column"}}>
     <div style={{display:"flex",alignItems:"center",padding:"8px 12px",background:bg||"#FAF3EB",borderBottom:`1px solid ${color}40`,flexShrink:0}}>
       <span style={{fontSize:14,marginRight:7}}>{icon}</span>
-      <span style={{flex:1,fontSize:11,fontWeight:800,color:"#000",letterSpacing:.5,textTransform:"uppercase",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</span>
+      <span style={{flex:1,fontSize:13,fontWeight:800,color:"#000",letterSpacing:.5,textTransform:"uppercase"}}>{title}</span>
       {badge!=null&&<span style={{fontSize:11,fontWeight:900,padding:"2px 9px",borderRadius:18,background:"#000",color:parseFloat(String(badge).replace(/[^0-9.-]/g,""))<0?"#FFB5A0":"#FFEAC2",fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{badge}</span>}
     </div>
     <div style={{padding:"5px 12px 9px",flex:1,overflow:"auto",minHeight:0}}>{children}</div>
@@ -119,20 +119,9 @@ export default function App() {
 .dsr-header-total{text-align:right;padding:2px 10px;border-left:2px solid #000}
 @media (max-width:1100px){.dsr-header-inner{grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:8px}.dsr-header-inputs{grid-column:1/-1;order:3}.dsr-header-actions{justify-self:end}}
 @media (max-width:640px){.dsr-header{padding:8px 12px}.dsr-header-inner{grid-template-columns:1fr;gap:6px}.dsr-header-actions{justify-self:stretch;justify-content:space-between}.dsr-header-total{border-left:none;padding-left:0}.dsr-header-inputs{flex-wrap:wrap}.dsr-header-inputs>select{flex:1 1 100%}.dsr-header-inputs>input{flex:1 1 calc(50% - 4px)}}
-.cards-grid{max-width:1500px;margin:0 auto;padding:12px;display:grid;grid-template-columns:repeat(12,1fr);gap:12px;box-sizing:border-box;align-items:start}
+.cards-grid{max-width:900px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box}
 .cards-grid>*{min-width:0}
-.card-sweeps{grid-column:span 6}
-.card-comps{grid-column:span 3}
-.card-bleed{grid-column:span 3}
-.card-cc{grid-column:span 4}
-.card-ep{grid-column:span 4}
-.card-safe{grid-column:span 4}
-.card-rp{grid-column:span 12}
-.card-sales{grid-column:span 12}
-.card-shortages{grid-column:span 6}
-.card-notes{grid-column:span 6}
-@media (max-width:1100px){.card-sweeps,.card-rp,.card-sales{grid-column:span 12}.card-comps,.card-bleed{grid-column:span 6}.card-cc,.card-ep,.card-safe{grid-column:span 6}.card-shortages,.card-notes{grid-column:span 6}}
-@media (max-width:640px){.cards-grid{grid-template-columns:1fr;padding:8px}.card-sweeps,.card-cc,.card-ep,.card-rp,.card-safe,.card-comps,.card-bleed,.card-sales,.card-shortages,.card-notes{grid-column:span 1}}
+@media (max-width:640px){.cards-grid{padding:8px;gap:8px}}
 .totals-bar{background:#000;border-radius:12px;padding:14px 18px;margin:14px auto 0;box-shadow:0 6px 30px #00000040;border:2px solid #000;max-width:calc(1500px - 24px)}
 .totals-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;font-family:'JetBrains Mono',monospace}
 @media (max-width:1100px){.totals-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -147,9 +136,9 @@ export default function App() {
         </div>
       </div>
       <div className="dsr-header-inputs">
-        <select value={loc} onChange={e=>setLoc(e.target.value)} style={{flex:2,padding:"7px 9px",border:"1.5px solid #000",borderRadius:7,fontSize:12,background:"#FFFDF9",color:loc?"#000":"#9C8878",fontWeight:loc?700:400}}><option value="">Select location...</option>{LOCS.map(l=><option key={l}>{l}</option>)}</select>
-        <input type="date" value={dt} onChange={e=>setDt(e.target.value)} style={{flex:1,padding:"7px 9px",border:"1.5px solid #000",borderRadius:7,fontSize:12,boxSizing:"border-box",background:"#FFFDF9",color:"#000",fontWeight:600}}/>
-        <input value={mgr} onChange={e=>setMgr(e.target.value)} placeholder="Manager" style={{flex:1,padding:"7px 9px",border:"1.5px solid #000",borderRadius:7,fontSize:12,boxSizing:"border-box",background:"#FFFDF9",color:"#000"}}/>
+        <select value={loc} onChange={e=>setLoc(e.target.value)} style={{flex:2,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,background:"#FFF",color:loc?"#000":"#9C8878",fontWeight:loc?700:400}}><option value="">Select location...</option>{LOCS.map(l=><option key={l}>{l}</option>)}</select>
+        <input type="date" value={dt} onChange={e=>setDt(e.target.value)} style={{flex:1,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:600}}/>
+        <input value={mgr} onChange={e=>setMgr(e.target.value)} placeholder="Manager" style={{flex:1,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:500}}/>
       </div>
       <div className="dsr-header-actions">
         <div className="dsr-header-total"><div style={{fontSize:8,color:"#6B5A4E",letterSpacing:2,fontWeight:800}}>TOTAL</div><div style={{fontSize:16,fontWeight:900,color:"#000",fontFamily:"'JetBrains Mono',monospace"}}>{fmt(c.td)}</div></div>
@@ -161,11 +150,11 @@ export default function App() {
       <div className="card-sweeps">
         <Card title="Sweepstakes (GC/FP)" icon="☀️" color="#FF8A5B" bg="#FFEDE2" badge={fmt(c.ng)}>
           <div style={{display:"grid",gridTemplateColumns:"minmax(70px,1.2fr) minmax(55px,1fr) minmax(55px,1fr) minmax(50px,0.8fr)",gap:"3px 8px",alignItems:"center",paddingBottom:4}}>
-            <div></div><div style={{color:"#6B5A4E",textAlign:"center",fontSize:9,fontWeight:800,letterSpacing:1}}>IN</div><div style={{color:"#6B5A4E",textAlign:"center",fontSize:9,fontWeight:800,letterSpacing:1}}>OUT</div><div style={{color:"#6B5A4E",textAlign:"right",fontSize:9,fontWeight:800,letterSpacing:1}}>NET</div>
+            <div></div><div style={{color:"#3D2E1F",textAlign:"center",fontSize:11,fontWeight:800,letterSpacing:1}}>IN</div><div style={{color:"#3D2E1F",textAlign:"center",fontSize:11,fontWeight:800,letterSpacing:1}}>OUT</div><div style={{color:"#3D2E1F",textAlign:"right",fontSize:11,fontWeight:800,letterSpacing:1}}>NET</div>
             {VEND.map(v => [
-              <div key={v.k+"l"} style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><div style={{width:10,height:10,borderRadius:2,background:v.c,border:"1.5px solid #000",flexShrink:0}}/><span style={{fontSize:12,fontWeight:700,color:"#000",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.l}</span></div>,
-              <input key={v.k+"i"} type="number" step="0.01" value={gc[v.k].i||""} onChange={e=>ug(v.k,"i",+e.target.value||0)} placeholder="0.00" style={{width:"100%",minWidth:0,padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:12,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:v.bg,color:"#000",fontWeight:500}}/>,
-              <input key={v.k+"o"} type="number" step="0.01" value={gc[v.k].o||""} onChange={e=>ug(v.k,"o",+e.target.value||0)} placeholder="0.00" style={{width:"100%",minWidth:0,padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:12,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:v.bg,color:"#000",fontWeight:500}}/>,
+              <div key={v.k+"l"} style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><div style={{width:10,height:10,borderRadius:2,background:v.c,border:"1.5px solid #000",flexShrink:0}}/><span style={{fontSize:13,fontWeight:700,color:"#000"}}>{v.l}</span></div>,
+              <input key={v.k+"i"} type="number" step="0.01" value={gc[v.k].i||""} onChange={e=>ug(v.k,"i",+e.target.value||0)} placeholder="0.00" style={{width:"100%",minWidth:0,padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>,
+              <input key={v.k+"o"} type="number" step="0.01" value={gc[v.k].o||""} onChange={e=>ug(v.k,"o",+e.target.value||0)} placeholder="0.00" style={{width:"100%",minWidth:0,padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>,
               <span key={v.k+"n"} style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:c.vn[v.k]<0?"#A03030":"#000",fontWeight:900,textAlign:"right"}}>{fmt(c.vn[v.k])}</span>
             ].flat())}
           </div>
@@ -232,55 +221,55 @@ export default function App() {
       <div className="card-rp">
         <Card title="Skill Vending Details" icon="🎮" color="#F4A5B0" bg="#FCEFF1" badge={fmt(skillDeposit)}>
           {/* Cardinal Xpress */}
-          <div style={{fontSize:10,color:"#000",marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #D4A027",paddingBottom:3}}>Cardinal Xpress</div>
+          <div style={{fontSize:13,color:"#000",marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #D4A027",paddingBottom:3}}>Cardinal Xpress</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"4px 10px"}}>
             <F label="Cardinal In" value={cardinal.in} onChange={v=>setCardinal(p=>({...p,in:v}))}/>
             <F label="Cardinal Out" value={cardinal.out} onChange={v=>setCardinal(p=>({...p,out:v}))}/>
             <F label="Net Cardinal" value={c.cxNet.toFixed(2)} disabled highlight/>
           </div>
           <div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed #C5B5A8"}}>
-            <div style={{fontSize:9,color:"#6B5A4E",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Cardinal Cabinets</div>
+            <div style={{fontSize:11,color:"#3D2E1F",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Cardinal Cabinets</div>
             {cardCabs.map((cab, i) => <div key={i} style={{background:"#FFFDF9",padding:"6px 8px",borderRadius:6,marginBottom:4,border:"1px solid #FBF2D8"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,fontWeight:900,color:"#D4A027",fontFamily:"'JetBrains Mono',monospace",minWidth:20}}>#{i+1}</span>
-                <input value={cab.name} onChange={e=>ucx(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,boxSizing:"border-box",fontWeight:600}}/>
-                <input value={cab.serial} onChange={e=>ucx(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
+                <input value={cab.name} onChange={e=>ucx(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,boxSizing:"border-box",fontWeight:600,background:"#FFF",color:"#1A1A1A"}}/>
+                <input value={cab.serial} onChange={e=>ucx(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:12,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A"}}/>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 70px",gap:6,alignItems:"center"}}>
-                <div style={{fontSize:8,color:"#6B5A4E",fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>$ IN/OUT</div>
-                <input type="number" step="0.01" value={cab.in||""} onChange={e=>ucx(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FBF2D8",fontWeight:500}}/>
-                <input type="number" step="0.01" value={cab.out||""} onChange={e=>ucx(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FBF2D8",fontWeight:500}}/>
+              <div style={{display:"grid",gridTemplateColumns:"55px 1fr 1fr 75px",gap:6,alignItems:"center"}}>
+                <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>$ IN/OUT</div>
+                <input type="number" step="0.01" value={cab.in||""} onChange={e=>ucx(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+                <input type="number" step="0.01" value={cab.out||""} onChange={e=>ucx(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
                 <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:900,textAlign:"right",color:(cab.in-cab.out)<0?"#A03030":"#000"}}>{fmt(cab.in-cab.out)}</span>
               </div>
             </div>)}
-            <button onClick={()=>setCardCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #D4A027",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD CARDINAL CABINET</button>
+            <button onClick={()=>setCardCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #D4A027",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD CARDINAL CABINET</button>
             <F label="Total Cardinal Net" value={c.cxCabNet.toFixed(2)} disabled highlight emphasize/>
           </div>
 
           {/* Red Plum */}
-          <div style={{fontSize:10,color:"#000",marginTop:12,marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #F4A5B0",paddingBottom:3}}>Red Plum</div>
+          <div style={{fontSize:13,color:"#000",marginTop:12,marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #F4A5B0",paddingBottom:3}}>Red Plum</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"4px 10px"}}>
             <F label="Red Plum In" value={rp.in} onChange={v=>setRp(p=>({...p,in:v}))}/>
             <F label="Red Plum Out" value={rp.out} onChange={v=>setRp(p=>({...p,out:v}))}/>
             <F label="NET - RP" value={c.rpNet.toFixed(2)} disabled highlight/>
           </div>
           <div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed #C5B5A8"}}>
-            <div style={{fontSize:9,color:"#6B5A4E",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Red Plum Cabinets</div>
+            <div style={{fontSize:11,color:"#3D2E1F",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Red Plum Cabinets</div>
             {rpCabs.map((cab, i) => <div key={i} style={{background:"#FFFDF9",padding:"6px 8px",borderRadius:6,marginBottom:4,border:"1px solid #F0E6F1"}}>
               <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
                 <span style={{fontSize:11,fontWeight:900,color:"#9B6B9E",fontFamily:"'JetBrains Mono',monospace",minWidth:20}}>#{i+1}</span>
-                <input value={cab.name} onChange={e=>urc(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,boxSizing:"border-box",fontWeight:600}}/>
-                <input value={cab.tid} onChange={e=>urc(i,"tid",e.target.value)} placeholder="TID" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
-                <input value={cab.serial} onChange={e=>urc(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 60px",minWidth:0,padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:10,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box"}}/>
+                <input value={cab.name} onChange={e=>urc(i,"name",e.target.value)} placeholder="Name" style={{flex:"1 1 110px",minWidth:0,padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,boxSizing:"border-box",fontWeight:600,background:"#FFF",color:"#1A1A1A"}}/>
+                <input value={cab.tid} onChange={e=>urc(i,"tid",e.target.value)} placeholder="TID" style={{flex:"1 1 80px",minWidth:0,padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:12,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A"}}/>
+                <input value={cab.serial} onChange={e=>urc(i,"serial",e.target.value)} placeholder="Serial" style={{flex:"1 1 60px",minWidth:0,padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:12,fontFamily:"'JetBrains Mono',monospace",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A"}}/>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"50px 1fr 1fr 70px",gap:6,alignItems:"center"}}>
-                <div style={{fontSize:8,color:"#6B5A4E",fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>$ IN/OUT</div>
-                <input type="number" step="0.01" value={cab.in||""} onChange={e=>urc(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FCEFF1",fontWeight:500}}/>
-                <input type="number" step="0.01" value={cab.out||""} onChange={e=>urc(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"1px solid #E8D5C4",borderRadius:5,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FCEFF1",fontWeight:500}}/>
+              <div style={{display:"grid",gridTemplateColumns:"55px 1fr 1fr 75px",gap:6,alignItems:"center"}}>
+                <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:.5,textTransform:"uppercase"}}>$ IN/OUT</div>
+                <input type="number" step="0.01" value={cab.in||""} onChange={e=>urc(i,"in",+e.target.value||0)} placeholder="In" style={{padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+                <input type="number" step="0.01" value={cab.out||""} onChange={e=>urc(i,"out",+e.target.value||0)} placeholder="Out" style={{padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
                 <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:900,textAlign:"right",color:(cab.in-cab.out)<0?"#A03030":"#000"}}>{fmt(cab.in-cab.out)}</span>
               </div>
             </div>)}
-            <button onClick={()=>setRpCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,tid:"",serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD RED PLUM CABINET</button>
+            <button onClick={()=>setRpCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,tid:"",serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD RED PLUM CABINET</button>
             <F label="Total Red Plum Net RP" value={c.rpCabNet.toFixed(2)} disabled highlight emphasize/>
           </div>
 
@@ -295,7 +284,7 @@ export default function App() {
         <Card title="Sales Detail" icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.tcd)}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:"0 20px"}}>
             <div>
-              <div style={{fontSize:9,color:"#6B5A4E",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
+              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
               <F label="Easy Play CARD" value={s.epCard} onChange={v=>setS(p=>({...p,epCard:v}))}/>
               <F label="Easy Play CREDITS" value={s.epCredits} onChange={v=>setS(p=>({...p,epCredits:v}))}/>
               <F label="Bar Sales" value={s.bar} onChange={v=>setS(p=>({...p,bar:v}))}/>
@@ -310,7 +299,7 @@ export default function App() {
               <F label="NET SALES" value={c.ns.toFixed(2)} disabled highlight emphasize/>
             </div>
             <div>
-              <div style={{fontSize:9,color:"#6B5A4E",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Payments and Adjustments</div>
+              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Payments and Adjustments</div>
               <F label="Total Credit Cards" value={s.cc} onChange={v=>setS(p=>({...p,cc:v}))}/>
               <F label="Bar Credit Cards" value={s.barCC} onChange={v=>setS(p=>({...p,barCC:v}))}/>
               <F label="Non-Cash Adj Fees" value={s.nonCashFees} onChange={v=>setS(p=>({...p,nonCashFees:v}))}/>
@@ -330,23 +319,23 @@ export default function App() {
       <div className="card-shortages">
         <Card title="Employee Shortages" icon="⚠️" color="#F4A5B0" bg="#FCEFF1">
           <div style={{display:"grid",gridTemplateColumns:"60px 1fr 90px",gap:5,alignItems:"center",marginBottom:4}}>
-            <div style={{fontSize:9,fontWeight:800,color:"#6B5A4E",letterSpacing:1,textTransform:"uppercase"}}>GC</div>
-            <input value={shortage.gcName} onChange={e=>setShortage(p=>({...p,gcName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
-            <input type="number" step="0.01" value={shortage.gcAmt||""} onChange={e=>setShortage(p=>({...p,gcAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box"}}/>
-            <div style={{fontSize:9,fontWeight:800,color:"#6B5A4E",letterSpacing:1,textTransform:"uppercase"}}>Skill</div>
-            <input value={shortage.skillName} onChange={e=>setShortage(p=>({...p,skillName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
-            <input type="number" step="0.01" value={shortage.skillAmt||""} onChange={e=>setShortage(p=>({...p,skillAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box"}}/>
-            <div style={{fontSize:9,fontWeight:800,color:"#6B5A4E",letterSpacing:1,textTransform:"uppercase"}}>Sales</div>
-            <input value={shortage.salesName} onChange={e=>setShortage(p=>({...p,salesName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:11,boxSizing:"border-box"}}/>
-            <input type="number" step="0.01" value={shortage.salesAmt||""} onChange={e=>setShortage(p=>({...p,salesAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"1.5px solid #E8D5C4",borderRadius:6,fontSize:11,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box"}}/>
+            <div style={{fontSize:12,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase"}}>GC</div>
+            <input value={shortage.gcName} onChange={e=>setShortage(p=>({...p,gcName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
+            <input type="number" step="0.01" value={shortage.gcAmt||""} onChange={e=>setShortage(p=>({...p,gcAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+            <div style={{fontSize:12,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase"}}>Skill</div>
+            <input value={shortage.skillName} onChange={e=>setShortage(p=>({...p,skillName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
+            <input type="number" step="0.01" value={shortage.skillAmt||""} onChange={e=>setShortage(p=>({...p,skillAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+            <div style={{fontSize:12,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase"}}>Sales</div>
+            <input value={shortage.salesName} onChange={e=>setShortage(p=>({...p,salesName:e.target.value}))} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
+            <input type="number" step="0.01" value={shortage.salesAmt||""} onChange={e=>setShortage(p=>({...p,salesAmt:+e.target.value||0}))} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
           </div>
-          <div style={{fontSize:9,color:"#9C8878",fontStyle:"italic",paddingTop:3}}>Deduct from Employee Paycheck</div>
+          <div style={{fontSize:11,color:"#6B5A4E",fontStyle:"italic",paddingTop:3}}>Deduct from Employee Paycheck</div>
         </Card>
       </div>
 
       <div className="card-notes">
         <Card title="Notes" icon="📝" color="#E8C170" bg="#FBF4E3">
-          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything else accounting needs to know..." style={{width:"100%",minHeight:80,padding:9,border:"1.5px solid #E8D5C4",borderRadius:7,fontSize:12,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit",background:"#FFFDF9",color:"#000"}}/>
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything else accounting needs to know..." style={{width:"100%",minHeight:80,padding:9,border:"2px solid #B8A99E",borderRadius:7,fontSize:14,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
         </Card>
       </div>
     </div>
