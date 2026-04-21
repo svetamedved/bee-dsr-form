@@ -122,16 +122,16 @@ export default function App() {
 .cards-grid{max-width:1500px;margin:0 auto;padding:12px;display:grid;grid-template-columns:repeat(12,1fr);gap:12px;box-sizing:border-box;align-items:start}
 .cards-grid>*{min-width:0}
 .card-sweeps{grid-column:span 6}
-.card-rp{grid-column:span 6}
+.card-comps{grid-column:span 3}
+.card-bleed{grid-column:span 3}
 .card-cc{grid-column:span 4}
 .card-ep{grid-column:span 4}
 .card-safe{grid-column:span 4}
-.card-comps{grid-column:span 5}
-.card-bleed{grid-column:span 7}
+.card-rp{grid-column:span 12}
 .card-sales{grid-column:span 12}
 .card-shortages{grid-column:span 6}
 .card-notes{grid-column:span 6}
-@media (max-width:1100px){.card-sweeps,.card-rp,.card-sales{grid-column:span 12}.card-cc,.card-ep,.card-safe{grid-column:span 6}.card-comps,.card-bleed{grid-column:span 6}.card-shortages,.card-notes{grid-column:span 6}}
+@media (max-width:1100px){.card-sweeps,.card-rp,.card-sales{grid-column:span 12}.card-comps,.card-bleed{grid-column:span 6}.card-cc,.card-ep,.card-safe{grid-column:span 6}.card-shortages,.card-notes{grid-column:span 6}}
 @media (max-width:640px){.cards-grid{grid-template-columns:1fr;padding:8px}.card-sweeps,.card-cc,.card-ep,.card-rp,.card-safe,.card-comps,.card-bleed,.card-sales,.card-shortages,.card-notes{grid-column:span 1}}
 .totals-bar{background:#000;border-radius:12px;padding:14px 18px;margin:14px auto 0;box-shadow:0 6px 30px #00000040;border:2px solid #000;max-width:calc(1500px - 24px)}
 .totals-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;font-family:'JetBrains Mono',monospace}
@@ -174,6 +174,58 @@ export default function App() {
             <F label="Total Prizes Out" value={c.to.toFixed(2)} disabled negative emphasize/>
             <F label="Net GC / FP" value={c.ng.toFixed(2)} disabled highlight emphasize/>
           </div>
+        </Card>
+      </div>
+
+      <div className="card-comps">
+        <Card title="Comps Detail" icon="🏷️" color="#C5B8E0" bg="#F2EEFB">
+          <F label="Retail Comps" value={comps.retail} onChange={v=>setComps(p=>({...p,retail:v}))}/>
+          <F label="Kitchen Comps" value={comps.kitchen} onChange={v=>setComps(p=>({...p,kitchen:v}))}/>
+          <F label="Total Comps Entered" value={comps.entered} onChange={v=>setComps(p=>({...p,entered:v}))}/>
+          <F label="Variance" value={c.compsVar.toFixed(2)} disabled negative={c.compsVar!==0} emphasize/>
+          <Text label="Description" value={compDesc} onChange={setCompDesc} placeholder="e.g. Military, Employee"/>
+        </Card>
+      </div>
+
+      <div className="card-bleed">
+        <Card title="Bleed" icon="💧" color="#E8C5A0" bg="#FBF0E3">
+          <F label="Bleed Amount" value={cash.bleed} onChange={v=>setCash(p=>({...p,bleed:v}))} emphasize/>
+          <Text label="Bleed Reason" value={cash.bleedReason} onChange={v=>setCash(p=>({...p,bleedReason:v}))} placeholder="e.g. Karaoke Contest"/>
+        </Card>
+      </div>
+
+      <div className="card-cc">
+        <Card title="GC Credit Cards" icon="💳" color="#E8A0BF" bg="#FBEEF4" badge={fmt(c.agd)}>
+          <F label="GC CC Total" value={cc.tot} onChange={v=>setCc(p=>({...p,tot:v}))} emphasize/>
+          <F label="GC CC Fees" value={cc.fee} onChange={v=>setCc(p=>({...p,fee:v}))} emphasize/>
+          <F label="Net CC GC" value={c.ncc.toFixed(2)} disabled highlight emphasize/>
+          <F label="Actual GC Deposit" value={c.agd.toFixed(2)} disabled highlight emphasize/>
+        </Card>
+      </div>
+
+      <div className="card-ep">
+        <Card title="Easy Play (COAM)" icon="🎰" color="#B8C5E0" bg="#EEF2FB">
+          <F label="EP TIME Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
+          <F label="EP TIME (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
+          <F label="EP TIME (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
+          <F label="EP TIME (FP) Total" value={c.epTotal.toFixed(2)} disabled highlight/>
+          <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance!==0}/>
+        </Card>
+      </div>
+
+      <div className="card-safe">
+        <Card title="Safe + Cash Detail" icon="🔒" color="#A8C5B8" bg="#EEF7F1" badge={fmt(c.endCash)}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
+            <F label="Actual Cash in Safe" value={cash.safe} onChange={v=>setCash(p=>({...p,safe:v}))}/>
+            <F label="GC/SKILL to Safe" value={cash.gcToSafe} onChange={v=>setCash(p=>({...p,gcToSafe:v}))}/>
+            <F label="Safe to GC/SKILL Dep" value={cash.safeToGc} onChange={v=>setCash(p=>({...p,safeToGc:v}))}/>
+            <F label="Bar to Safe" value={cash.barToSafe} onChange={v=>setCash(p=>({...p,barToSafe:v}))}/>
+            <F label="Safe to Bar Deposit" value={cash.safeToBar} onChange={v=>setCash(p=>({...p,safeToBar:v}))}/>
+            <F label="Misc Payout from Safe" value={cash.miscPayout} onChange={v=>setCash(p=>({...p,miscPayout:v}))}/>
+            <F label="Starting Drawer" value={cash.drawer} onChange={v=>setCash(p=>({...p,drawer:v}))}/>
+            <F label="End: Cash in Safe" value={cash.endSafe} onChange={v=>setCash(p=>({...p,endSafe:v}))}/>
+          </div>
+          <F label="End: Total Cash Count" value={c.endCash.toFixed(2)} disabled highlight emphasize/>
         </Card>
       </div>
 
@@ -236,58 +288,6 @@ export default function App() {
           <div style={{borderTop:"2px solid #000",marginTop:10,paddingTop:6}}>
             <F label="Skill Deposit" value={skillDeposit} onChange={setSkillDeposit} emphasize/>
           </div>
-        </Card>
-      </div>
-
-      <div className="card-cc">
-        <Card title="GC Credit Cards" icon="💳" color="#E8A0BF" bg="#FBEEF4" badge={fmt(c.agd)}>
-          <F label="GC CC Total" value={cc.tot} onChange={v=>setCc(p=>({...p,tot:v}))} emphasize/>
-          <F label="GC CC Fees" value={cc.fee} onChange={v=>setCc(p=>({...p,fee:v}))} emphasize/>
-          <F label="Net CC GC" value={c.ncc.toFixed(2)} disabled highlight emphasize/>
-          <F label="Actual GC Deposit" value={c.agd.toFixed(2)} disabled highlight emphasize/>
-        </Card>
-      </div>
-
-      <div className="card-ep">
-        <Card title="Easy Play (COAM)" icon="🎰" color="#B8C5E0" bg="#EEF2FB">
-          <F label="EP TIME Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
-          <F label="EP TIME (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
-          <F label="EP TIME (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
-          <F label="EP TIME (FP) Total" value={c.epTotal.toFixed(2)} disabled highlight/>
-          <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance!==0}/>
-        </Card>
-      </div>
-
-      <div className="card-safe">
-        <Card title="Safe + Cash Detail" icon="🔒" color="#A8C5B8" bg="#EEF7F1" badge={fmt(c.endCash)}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
-            <F label="Actual Cash in Safe" value={cash.safe} onChange={v=>setCash(p=>({...p,safe:v}))}/>
-            <F label="GC/SKILL to Safe" value={cash.gcToSafe} onChange={v=>setCash(p=>({...p,gcToSafe:v}))}/>
-            <F label="Safe to GC/SKILL Dep" value={cash.safeToGc} onChange={v=>setCash(p=>({...p,safeToGc:v}))}/>
-            <F label="Bar to Safe" value={cash.barToSafe} onChange={v=>setCash(p=>({...p,barToSafe:v}))}/>
-            <F label="Safe to Bar Deposit" value={cash.safeToBar} onChange={v=>setCash(p=>({...p,safeToBar:v}))}/>
-            <F label="Misc Payout from Safe" value={cash.miscPayout} onChange={v=>setCash(p=>({...p,miscPayout:v}))}/>
-            <F label="Starting Drawer" value={cash.drawer} onChange={v=>setCash(p=>({...p,drawer:v}))}/>
-            <F label="End: Cash in Safe" value={cash.endSafe} onChange={v=>setCash(p=>({...p,endSafe:v}))}/>
-          </div>
-          <F label="End: Total Cash Count" value={c.endCash.toFixed(2)} disabled highlight emphasize/>
-        </Card>
-      </div>
-
-      <div className="card-comps">
-        <Card title="Comps Detail" icon="🏷️" color="#C5B8E0" bg="#F2EEFB">
-          <F label="Retail Comps" value={comps.retail} onChange={v=>setComps(p=>({...p,retail:v}))}/>
-          <F label="Kitchen Comps" value={comps.kitchen} onChange={v=>setComps(p=>({...p,kitchen:v}))}/>
-          <F label="Total Comps Entered" value={comps.entered} onChange={v=>setComps(p=>({...p,entered:v}))}/>
-          <F label="Variance" value={c.compsVar.toFixed(2)} disabled negative={c.compsVar!==0} emphasize/>
-          <Text label="Description" value={compDesc} onChange={setCompDesc} placeholder="e.g. Military, Employee"/>
-        </Card>
-      </div>
-
-      <div className="card-bleed">
-        <Card title="Bleed" icon="💧" color="#E8C5A0" bg="#FBF0E3">
-          <F label="Bleed Amount" value={cash.bleed} onChange={v=>setCash(p=>({...p,bleed:v}))} emphasize/>
-          <Text label="Bleed Reason" value={cash.bleedReason} onChange={v=>setCash(p=>({...p,bleedReason:v}))} placeholder="e.g. Karaoke Contest"/>
         </Card>
       </div>
 
