@@ -121,17 +121,17 @@ export default function App() {
 @media (max-width:640px){.dsr-header{padding:8px 12px}.dsr-header-inner{grid-template-columns:1fr;gap:6px}.dsr-header-actions{justify-self:stretch;justify-content:space-between}.dsr-header-total{border-left:none;padding-left:0}.dsr-header-inputs{flex-wrap:wrap}.dsr-header-inputs>select{flex:1 1 100%}.dsr-header-inputs>input{flex:1 1 calc(50% - 4px)}}
 .cards-grid{max-width:1500px;margin:0 auto;padding:12px;display:grid;grid-template-columns:repeat(12,1fr);gap:12px;box-sizing:border-box}
 .cards-grid>*{min-width:0}
-.card-sweeps{grid-column:span 8}
+.card-sweeps{grid-column:span 6}
+.card-rp{grid-column:span 6}
 .card-cc{grid-column:span 4}
 .card-ep{grid-column:span 4}
-.card-rp{grid-column:span 8}
-.card-safe{grid-column:span 7}
+.card-safe{grid-column:span 4}
 .card-comps{grid-column:span 5}
-.card-bleed{grid-column:span 5}
+.card-bleed{grid-column:span 7}
 .card-sales{grid-column:span 12}
 .card-shortages{grid-column:span 6}
 .card-notes{grid-column:span 6}
-@media (max-width:1100px){.card-sweeps,.card-rp,.card-safe,.card-sales{grid-column:span 12}.card-cc,.card-ep{grid-column:span 6}.card-comps,.card-bleed{grid-column:span 6}.card-shortages,.card-notes{grid-column:span 6}}
+@media (max-width:1100px){.card-sweeps,.card-rp,.card-sales{grid-column:span 12}.card-cc,.card-ep,.card-safe{grid-column:span 6}.card-comps,.card-bleed{grid-column:span 6}.card-shortages,.card-notes{grid-column:span 6}}
 @media (max-width:640px){.cards-grid{grid-template-columns:1fr;padding:8px}.card-sweeps,.card-cc,.card-ep,.card-rp,.card-safe,.card-comps,.card-bleed,.card-sales,.card-shortages,.card-notes{grid-column:span 1}}
 .totals-bar{background:#000;border-radius:12px;padding:14px 18px;margin:14px auto 0;box-shadow:0 6px 30px #00000040;border:2px solid #000;max-width:calc(1500px - 24px)}
 .totals-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;font-family:'JetBrains Mono',monospace}
@@ -177,25 +177,6 @@ export default function App() {
         </Card>
       </div>
 
-      <div className="card-cc">
-        <Card title="GC Credit Cards" icon="💳" color="#E8A0BF" bg="#FBEEF4" badge={fmt(c.agd)}>
-          <F label="GC CC Total" value={cc.tot} onChange={v=>setCc(p=>({...p,tot:v}))} emphasize/>
-          <F label="GC CC Fees" value={cc.fee} onChange={v=>setCc(p=>({...p,fee:v}))} emphasize/>
-          <F label="Net CC GC" value={c.ncc.toFixed(2)} disabled highlight emphasize/>
-          <F label="Actual GC Deposit" value={c.agd.toFixed(2)} disabled highlight emphasize/>
-        </Card>
-      </div>
-
-      <div className="card-ep">
-        <Card title="Easy Play (COAM)" icon="🎰" color="#B8C5E0" bg="#EEF2FB">
-          <F label="EP TIME Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
-          <F label="EP TIME (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
-          <F label="EP TIME (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
-          <F label="EP TIME (FP) Total" value={c.epTotal.toFixed(2)} disabled highlight/>
-          <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance!==0}/>
-        </Card>
-      </div>
-
       <div className="card-rp">
         <Card title="Skill Vending Details" icon="🎮" color="#F4A5B0" bg="#FCEFF1" badge={fmt(skillDeposit)}>
           {/* Cardinal Xpress */}
@@ -203,7 +184,7 @@ export default function App() {
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"4px 10px"}}>
             <F label="Cardinal In" value={cardinal.in} onChange={v=>setCardinal(p=>({...p,in:v}))}/>
             <F label="Cardinal Out" value={cardinal.out} onChange={v=>setCardinal(p=>({...p,out:v}))}/>
-            <F label="NET - CX" value={c.cxNet.toFixed(2)} disabled highlight/>
+            <F label="Net Cardinal" value={c.cxNet.toFixed(2)} disabled highlight/>
           </div>
           <div style={{marginTop:6,paddingTop:6,borderTop:"1px dashed #C5B5A8"}}>
             <div style={{fontSize:9,color:"#6B5A4E",marginBottom:4,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Cardinal Cabinets</div>
@@ -221,7 +202,7 @@ export default function App() {
               </div>
             </div>)}
             <button onClick={()=>setCardCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #D4A027",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD CARDINAL CABINET</button>
-            <F label="Total Cardinal Net CX" value={c.cxCabNet.toFixed(2)} disabled highlight emphasize/>
+            <F label="Total Cardinal Net" value={c.cxCabNet.toFixed(2)} disabled highlight emphasize/>
           </div>
 
           {/* Red Plum */}
@@ -255,6 +236,25 @@ export default function App() {
           <div style={{borderTop:"2px solid #000",marginTop:10,paddingTop:6}}>
             <F label="Skill Deposit" value={skillDeposit} onChange={setSkillDeposit} emphasize/>
           </div>
+        </Card>
+      </div>
+
+      <div className="card-cc">
+        <Card title="GC Credit Cards" icon="💳" color="#E8A0BF" bg="#FBEEF4" badge={fmt(c.agd)}>
+          <F label="GC CC Total" value={cc.tot} onChange={v=>setCc(p=>({...p,tot:v}))} emphasize/>
+          <F label="GC CC Fees" value={cc.fee} onChange={v=>setCc(p=>({...p,fee:v}))} emphasize/>
+          <F label="Net CC GC" value={c.ncc.toFixed(2)} disabled highlight emphasize/>
+          <F label="Actual GC Deposit" value={c.agd.toFixed(2)} disabled highlight emphasize/>
+        </Card>
+      </div>
+
+      <div className="card-ep">
+        <Card title="Easy Play (COAM)" icon="🎰" color="#B8C5E0" bg="#EEF2FB">
+          <F label="EP TIME Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
+          <F label="EP TIME (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
+          <F label="EP TIME (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
+          <F label="EP TIME (FP) Total" value={c.epTotal.toFixed(2)} disabled highlight/>
+          <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance!==0}/>
         </Card>
       </div>
 
