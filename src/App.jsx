@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { jsPDF } from "jspdf";
 
 const LOCS = ["BE Station Brady","BES 2 Rockport","BES 4 Kingsbury","BES 6 Buchanan Dam","BES 7 San Antonio","BES 8 Pflugerville","BES 10 - Crossroads Robstown","BES Giddings","Icehouse in SA","Lucky Cosmos Buda","MT 4 Corsicana","MT 5 Conroe","Music City","My Office Club","Skillzone 1 Porter","Skillzone 2 Mt Pleasant","Speakeasy Lakeway","Starlite Saloon","Whiskey Room"];
@@ -171,11 +171,11 @@ export default function App() {
     line("Net CC GC", fmt(c.ncc), true);
     line("Actual GC Deposit", fmt(c.agd), true);
 
-    heading("EASY PLAY (COAM)");
-    line("EP TIME Total", fmt(ep.total));
-    line("EP TIME (No FP)", fmt(ep.noFP));
-    line("EP TIME (FP)", fmt(ep.fp));
-    line("EP TIME (FP) Total", fmt(c.epTotal), true);
+    heading("COAMs");
+    line("COAMs Total", fmt(ep.total));
+    line("COAMs (No FP)", fmt(ep.noFP));
+    line("COAMs (FP)", fmt(ep.fp));
+    line("COAMs (FP) Total", fmt(c.epTotal), true);
     line("Variance", fmt(c.epVariance), true);
 
     heading("SAFE + CASH DETAIL");
@@ -203,7 +203,7 @@ export default function App() {
     line("Skill Deposit", fmt(skillDeposit), true);
 
     heading("SALES DETAIL");
-    line("Easy Play CARD", fmt(s.epCard)); line("Easy Play CREDITS", fmt(s.epCredits));
+    line("COAMs CARD", fmt(s.epCard)); line("COAMs CREDITS", fmt(s.epCredits));
     line("Bar Sales", fmt(s.bar)); line("Kitchen Sales", fmt(s.kitchen));
     line("Gift Cert Sales", fmt(s.gcSales)); line("Retail Sales", fmt(s.retail));
     line("Comps (-)", fmt(s.comps)); line("Discounts (-)", fmt(s.disc)); line("Spills (-)", fmt(s.spills));
@@ -245,7 +245,7 @@ export default function App() {
     add("Retail Comps", comps.retail); add("Kitchen Comps", comps.kitchen); add("Total Comps Entered", comps.entered); add("Comps Variance", c.compsVar); add("Comps Description", compDesc);
     add("Bleed Amount", cash.bleed); add("Bleed Reason", cash.bleedReason);
     add("GC CC Total", cc.tot); add("GC CC Fees", cc.fee); add("Net CC GC", c.ncc); add("Actual GC Deposit", c.agd);
-    add("EP Total", ep.total); add("EP No FP", ep.noFP); add("EP FP", ep.fp); add("EP FP Total", c.epTotal); add("EP Variance", c.epVariance);
+    add("COAMs Total", ep.total); add("COAMs No FP", ep.noFP); add("COAMs FP", ep.fp); add("COAMs FP Total", c.epTotal); add("COAMs Variance", c.epVariance);
     add("Cash in Safe", cash.safe); add("GC/Skill to Safe", cash.gcToSafe); add("Safe to GC/Skill", cash.safeToGc);
     add("Bar to Safe", cash.barToSafe); add("Safe to Bar", cash.safeToBar); add("Misc Payout", cash.miscPayout);
     add("Starting Drawer", cash.drawer); add("End Cash in Safe", cash.endSafe); add("Total Cash Count", c.endCash);
@@ -255,7 +255,7 @@ export default function App() {
     add("Red Plum In", rp.in); add("Red Plum Out", rp.out); add("Red Plum Net", c.rpNet);
     rpCabs.forEach((cab, i) => { add(`RP Cab${i+1} Name`, cab.name); add(`RP Cab${i+1} TID`, cab.tid); add(`RP Cab${i+1} Serial`, cab.serial); add(`RP Cab${i+1} In`, cab.in); add(`RP Cab${i+1} Out`, cab.out); });
     add("Red Plum Cab Net", c.rpCabNet); add("Skill Deposit", skillDeposit);
-    add("EP Card Sales", s.epCard); add("EP Credits Sales", s.epCredits); add("Bar Sales", s.bar); add("Kitchen Sales", s.kitchen);
+    add("COAMs Card Sales", s.epCard); add("COAMs Credits Sales", s.epCredits); add("Bar Sales", s.bar); add("Kitchen Sales", s.kitchen);
     add("GC Sales", s.gcSales); add("Retail Sales", s.retail); add("Comps", s.comps); add("Discounts", s.disc); add("Spills", s.spills);
     add("Net Sales", c.ns); add("Total CC", s.cc); add("Bar CC", s.barCC); add("Non-Cash Fees", s.nonCashFees);
     add("Taxes", s.taxes); add("Tips", s.tips); add("Recoveries", s.rec);
@@ -298,7 +298,7 @@ export default function App() {
     if (s.gcSales !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tGift Cert Sales\t${loc}\t${(-s.gcSales).toFixed(2)}\tGift Cert Sales`);
     if (s.retail !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRetail Sales\t${loc}\t${(-s.retail).toFixed(2)}\tRetail Sales`);
     // EP
-    if (ep.total !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEasy Play Revenue\t${loc}\t${(-ep.total).toFixed(2)}\tEP Total`);
+    if (ep.total !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCOAMs Revenue\t${loc}\t${(-ep.total).toFixed(2)}\tCOAMs Total`);
     // Skill vending
     if (c.cxCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCardinal Xpress Revenue\t${loc}\t${(-c.cxCabNet).toFixed(2)}\tCardinal Net`);
     if (c.rpCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRed Plum Revenue\t${loc}\t${(-c.rpCabNet).toFixed(2)}\tRed Plum Net`);
@@ -325,7 +325,7 @@ export default function App() {
 @media (max-width:640px){.dsr-header{padding:8px 12px}.dsr-header-inner{grid-template-columns:1fr;gap:6px}.dsr-header-actions{justify-self:stretch;justify-content:space-between}.dsr-header-total{border-left:none;padding-left:0}.dsr-header-inputs{flex-wrap:wrap}.dsr-header-inputs>select{flex:1 1 100%}.dsr-header-inputs>input{flex:1 1 calc(50% - 4px)}}
 .cards-grid{max-width:900px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box}
 .cards-grid>*{min-width:0}
-@media (max-width:640px){.cards-grid{padding:8px;gap:8px}}
+@media (max-width:640px){.cards-grid{padding:8px;gap:8px}.sales-cols{grid-template-columns:1fr!important}}
 .totals-bar{background:#000;border-radius:12px;padding:14px 18px;margin:14px auto 0;box-shadow:0 6px 30px #00000040;border:2px solid #000;max-width:calc(1500px - 24px)}
 .totals-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;font-family:'JetBrains Mono',monospace}
 @media (max-width:1100px){.totals-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -359,77 +359,44 @@ export default function App() {
     </div></div>
 
     <div className="cards-grid">
-      <div className="card-sweeps">
-        <Card title="Sweepstakes (GC/FP)" icon="☀️" color="#FF8A5B" bg="#FFEDE2" badge={fmt(c.ng)}>
-          <div style={{display:"grid",gridTemplateColumns:"minmax(70px,1.2fr) minmax(55px,1fr) minmax(55px,1fr) minmax(50px,0.8fr)",gap:"3px 8px",alignItems:"center",paddingBottom:4}}>
-            <div></div><div style={{color:"#3D2E1F",textAlign:"center",fontSize:11,fontWeight:800,letterSpacing:1}}>IN</div><div style={{color:"#3D2E1F",textAlign:"center",fontSize:11,fontWeight:800,letterSpacing:1}}>OUT</div><div style={{color:"#3D2E1F",textAlign:"right",fontSize:11,fontWeight:800,letterSpacing:1}}>NET</div>
-            {VEND.map(v => [
-              <div key={v.k+"l"} style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}><div style={{width:10,height:10,borderRadius:2,background:v.c,border:"1.5px solid #000",flexShrink:0}}/><span style={{fontSize:13,fontWeight:700,color:"#000"}}>{v.l}</span></div>,
-              <input key={v.k+"i"} type="number" step="0.01" value={gc[v.k].i||""} onChange={e=>ug(v.k,"i",+e.target.value||0)} placeholder="0.00" style={{width:"100%",minWidth:0,padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>,
-              <input key={v.k+"o"} type="number" step="0.01" value={gc[v.k].o||""} onChange={e=>ug(v.k,"o",+e.target.value||0)} placeholder="0.00" style={{width:"100%",minWidth:0,padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>,
-              <span key={v.k+"n"} style={{fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:c.vn[v.k]<0?"#A03030":"#000",fontWeight:900,textAlign:"right"}}>{fmt(c.vn[v.k])}</span>
-            ].flat())}
+      {/* 1. Sales Detail */}
+      <div className="card-sales">
+        <Card title="Sales Detail" icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.tcd)}>
+          <div className="sales-cols" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+            <div>
+              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
+              <F label="COAMs CARD" value={s.epCard} onChange={v=>setS(p=>({...p,epCard:v}))}/>
+              <F label="COAMs CREDITS" value={s.epCredits} onChange={v=>setS(p=>({...p,epCredits:v}))}/>
+              <F label="Bar Sales" value={s.bar} onChange={v=>setS(p=>({...p,bar:v}))}/>
+              <F label="Kitchen Sales" value={s.kitchen} onChange={v=>setS(p=>({...p,kitchen:v}))}/>
+              <F label="Gift Cert Sales" value={s.gcSales} onChange={v=>setS(p=>({...p,gcSales:v}))}/>
+              <F label="Retail Sales" value={s.retail} onChange={v=>setS(p=>({...p,retail:v}))}/>
+              <div style={{borderTop:"1px dashed #C5B5A8",margin:"4px 0 2px"}}/>
+              <F label="Comps (-)" value={s.comps} onChange={v=>setS(p=>({...p,comps:v}))}/>
+              <F label="Discounts (-)" value={s.disc} onChange={v=>setS(p=>({...p,disc:v}))}/>
+              <F label="Spills (-)" value={s.spills} onChange={v=>setS(p=>({...p,spills:v}))}/>
+              <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
+              <F label="NET SALES" value={c.ns.toFixed(2)} disabled highlight emphasize/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Payments and Adjustments</div>
+              <F label="Total Credit Cards" value={s.cc} onChange={v=>setS(p=>({...p,cc:v}))}/>
+              <F label="Bar Credit Cards" value={s.barCC} onChange={v=>setS(p=>({...p,barCC:v}))}/>
+              <F label="Non-Cash Adj Fees" value={s.nonCashFees} onChange={v=>setS(p=>({...p,nonCashFees:v}))}/>
+              <F label="Total Taxes" value={s.taxes} onChange={v=>setS(p=>({...p,taxes:v}))}/>
+              <F label="Total Tips" value={s.tips} onChange={v=>setS(p=>({...p,tips:v}))}/>
+              <F label="Recoveries" value={s.rec} onChange={v=>setS(p=>({...p,rec:v}))}/>
+              <F label="GC Redemptions" value={s.gcRedemptions} onChange={v=>setS(p=>({...p,gcRedemptions:v}))}/>
+              <F label="GC Conversions" value={s.gcConversions} onChange={v=>setS(p=>({...p,gcConversions:v}))}/>
+              <F label="Pool Drop" value={poolDrop} onChange={setPoolDrop}/>
+              <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
+              <F label="TOTAL CASH DEPOSIT" value={c.tcd.toFixed(2)} disabled highlight emphasize/>
+            </div>
           </div>
-          <div style={{borderTop:"2px solid #000",marginTop:5,paddingTop:3}}>
-            <F label="Total Points In" value={c.ti.toFixed(2)} disabled highlight emphasize/>
-            <F label="Total Prizes Out" value={c.to.toFixed(2)} disabled negative emphasize/>
-            <F label="Net GC / FP" value={c.ng.toFixed(2)} disabled highlight emphasize/>
-          </div>
         </Card>
       </div>
 
-      <div className="card-comps">
-        <Card title="Comps Detail" icon="🏷️" color="#C5B8E0" bg="#F2EEFB">
-          <F label="Retail Comps" value={comps.retail} onChange={v=>setComps(p=>({...p,retail:v}))}/>
-          <F label="Kitchen Comps" value={comps.kitchen} onChange={v=>setComps(p=>({...p,kitchen:v}))}/>
-          <F label="Total Comps Entered" value={comps.entered} onChange={v=>setComps(p=>({...p,entered:v}))}/>
-          <F label="Variance" value={c.compsVar.toFixed(2)} disabled negative={c.compsVar!==0} emphasize/>
-          <Text label="Description" value={compDesc} onChange={setCompDesc} placeholder="e.g. Military, Employee"/>
-        </Card>
-      </div>
-
-      <div className="card-bleed">
-        <Card title="Bleed" icon="💧" color="#E8C5A0" bg="#FBF0E3">
-          <F label="Bleed Amount" value={cash.bleed} onChange={v=>setCash(p=>({...p,bleed:v}))} emphasize/>
-          <Text label="Bleed Reason" value={cash.bleedReason} onChange={v=>setCash(p=>({...p,bleedReason:v}))} placeholder="e.g. Karaoke Contest"/>
-        </Card>
-      </div>
-
-      <div className="card-cc">
-        <Card title="GC Credit Cards" icon="💳" color="#E8A0BF" bg="#FBEEF4" badge={fmt(c.agd)}>
-          <F label="GC CC Total" value={cc.tot} onChange={v=>setCc(p=>({...p,tot:v}))} emphasize/>
-          <F label="GC CC Fees" value={cc.fee} onChange={v=>setCc(p=>({...p,fee:v}))} emphasize/>
-          <F label="Net CC GC" value={c.ncc.toFixed(2)} disabled highlight emphasize/>
-          <F label="Actual GC Deposit" value={c.agd.toFixed(2)} disabled highlight emphasize/>
-        </Card>
-      </div>
-
-      <div className="card-ep">
-        <Card title="Easy Play (COAM)" icon="🎰" color="#B8C5E0" bg="#EEF2FB">
-          <F label="EP TIME Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
-          <F label="EP TIME (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
-          <F label="EP TIME (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
-          <F label="EP TIME (FP) Total" value={c.epTotal.toFixed(2)} disabled highlight/>
-          <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance!==0}/>
-        </Card>
-      </div>
-
-      <div className="card-safe">
-        <Card title="Safe + Cash Detail" icon="🔒" color="#A8C5B8" bg="#EEF7F1" badge={fmt(c.endCash)}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"0 16px"}}>
-            <F label="Actual Cash in Safe" value={cash.safe} onChange={v=>setCash(p=>({...p,safe:v}))}/>
-            <F label="GC/SKILL to Safe" value={cash.gcToSafe} onChange={v=>setCash(p=>({...p,gcToSafe:v}))}/>
-            <F label="Safe to GC/SKILL Dep" value={cash.safeToGc} onChange={v=>setCash(p=>({...p,safeToGc:v}))}/>
-            <F label="Bar to Safe" value={cash.barToSafe} onChange={v=>setCash(p=>({...p,barToSafe:v}))}/>
-            <F label="Safe to Bar Deposit" value={cash.safeToBar} onChange={v=>setCash(p=>({...p,safeToBar:v}))}/>
-            <F label="Misc Payout from Safe" value={cash.miscPayout} onChange={v=>setCash(p=>({...p,miscPayout:v}))}/>
-            <F label="Starting Drawer" value={cash.drawer} onChange={v=>setCash(p=>({...p,drawer:v}))}/>
-            <F label="End: Cash in Safe" value={cash.endSafe} onChange={v=>setCash(p=>({...p,endSafe:v}))}/>
-          </div>
-          <F label="End: Total Cash Count" value={c.endCash.toFixed(2)} disabled highlight emphasize/>
-        </Card>
-      </div>
-
+      {/* 2. Skill Vending Details */}
       <div className="card-rp">
         <Card title="Skill Vending Details" icon="🎮" color="#F4A5B0" bg="#FCEFF1" badge={fmt(skillDeposit)}>
           {/* Cardinal Xpress */}
@@ -492,42 +459,93 @@ export default function App() {
         </Card>
       </div>
 
-      <div className="card-sales">
-        <Card title="Sales Detail" icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.tcd)}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:"0 20px"}}>
-            <div>
-              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
-              <F label="Easy Play CARD" value={s.epCard} onChange={v=>setS(p=>({...p,epCard:v}))}/>
-              <F label="Easy Play CREDITS" value={s.epCredits} onChange={v=>setS(p=>({...p,epCredits:v}))}/>
-              <F label="Bar Sales" value={s.bar} onChange={v=>setS(p=>({...p,bar:v}))}/>
-              <F label="Kitchen Sales" value={s.kitchen} onChange={v=>setS(p=>({...p,kitchen:v}))}/>
-              <F label="Gift Cert Sales" value={s.gcSales} onChange={v=>setS(p=>({...p,gcSales:v}))}/>
-              <F label="Retail Sales" value={s.retail} onChange={v=>setS(p=>({...p,retail:v}))}/>
-              <div style={{borderTop:"1px dashed #C5B5A8",margin:"4px 0 2px"}}/>
-              <F label="Comps (-)" value={s.comps} onChange={v=>setS(p=>({...p,comps:v}))}/>
-              <F label="Discounts (-)" value={s.disc} onChange={v=>setS(p=>({...p,disc:v}))}/>
-              <F label="Spills (-)" value={s.spills} onChange={v=>setS(p=>({...p,spills:v}))}/>
-              <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
-              <F label="NET SALES" value={c.ns.toFixed(2)} disabled highlight emphasize/>
-            </div>
-            <div>
-              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Payments and Adjustments</div>
-              <F label="Total Credit Cards" value={s.cc} onChange={v=>setS(p=>({...p,cc:v}))}/>
-              <F label="Bar Credit Cards" value={s.barCC} onChange={v=>setS(p=>({...p,barCC:v}))}/>
-              <F label="Non-Cash Adj Fees" value={s.nonCashFees} onChange={v=>setS(p=>({...p,nonCashFees:v}))}/>
-              <F label="Total Taxes" value={s.taxes} onChange={v=>setS(p=>({...p,taxes:v}))}/>
-              <F label="Total Tips" value={s.tips} onChange={v=>setS(p=>({...p,tips:v}))}/>
-              <F label="Recoveries" value={s.rec} onChange={v=>setS(p=>({...p,rec:v}))}/>
-              <F label="GC Redemptions" value={s.gcRedemptions} onChange={v=>setS(p=>({...p,gcRedemptions:v}))}/>
-              <F label="GC Conversions" value={s.gcConversions} onChange={v=>setS(p=>({...p,gcConversions:v}))}/>
-              <F label="Pool Drop" value={poolDrop} onChange={setPoolDrop}/>
-              <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
-              <F label="TOTAL CASH DEPOSIT" value={c.tcd.toFixed(2)} disabled highlight emphasize/>
-            </div>
+      {/* 3. Sweepstakes (GC / FP) */}
+      <div className="card-sweeps">
+        <Card title="Sweepstakes (GC / FP)" icon="🎰" color="#D4A027" bg="#FBF2D8" badge={fmt(c.ng)}>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,2fr) repeat(3,minmax(0,1fr))",gap:"2px 8px",alignItems:"center"}}>
+            <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Vendor</div>
+            <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:.5,textTransform:"uppercase",textAlign:"right"}}>IN</div>
+            <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:.5,textTransform:"uppercase",textAlign:"right"}}>OUT</div>
+            <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:.5,textTransform:"uppercase",textAlign:"right"}}>NET</div>
+            {VEND.map(v=><React.Fragment key={v.k}>
+              <div style={{fontSize:12,fontWeight:700,color:v.c,padding:"4px 0",borderBottom:"1px solid #F5EBE0"}}>{v.l}</div>
+              <input type="number" step="0.01" value={gc[v.k].i||""} onChange={e=>ug(v.k,"i",+e.target.value||0)} placeholder="0.00" style={{padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+              <input type="number" step="0.01" value={gc[v.k].o||""} onChange={e=>ug(v.k,"o",+e.target.value||0)} placeholder="0.00" style={{padding:"4px 7px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
+              <div style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",fontWeight:900,textAlign:"right",padding:"4px 0",borderBottom:"1px solid #F5EBE0",color:c.vn[v.k]<0?"#A03030":"#000"}}>{fmt(c.vn[v.k])}</div>
+            </React.Fragment>)}
+          </div>
+          <div style={{borderTop:"2px solid #000",marginTop:6,paddingTop:4}}>
+            <F label="Total Points In" value={c.ti.toFixed(2)} disabled highlight emphasize/>
+            <F label="Total Prizes Out" value={c.to.toFixed(2)} disabled negative emphasize/>
+            <F label="Net GC / FP" value={c.ng.toFixed(2)} disabled highlight emphasize/>
           </div>
         </Card>
       </div>
 
+      {/* 4. COAMs */}
+      <div className="card-ep">
+        <Card title="COAMs" icon="🎯" color="#4A9BAE" bg="#E3F0F4" badge={fmt(c.epVariance)}>
+          <F label="COAMs Total" value={ep.total} onChange={v=>setEp(p=>({...p,total:v}))}/>
+          <F label="COAMs (No FP)" value={ep.noFP} onChange={v=>setEp(p=>({...p,noFP:v}))}/>
+          <F label="COAMs (FP)" value={ep.fp} onChange={v=>setEp(p=>({...p,fp:v}))}/>
+          <div style={{borderTop:"2px solid #000",marginTop:4,paddingTop:4}}>
+            <F label="COAMs (FP) Total" value={c.epTotal.toFixed(2)} disabled highlight emphasize/>
+            <F label="Variance" value={c.epVariance.toFixed(2)} disabled negative={c.epVariance<0} emphasize/>
+          </div>
+        </Card>
+      </div>
+
+      {/* 5. GC Credit Cards */}
+      <div className="card-cc">
+        <Card title="GC Credit Cards" icon="💳" color="#9B6B9E" bg="#F0E6F1" badge={fmt(c.agd)}>
+          <F label="GC CC Total" value={cc.tot} onChange={v=>setCc(p=>({...p,tot:v}))}/>
+          <F label="GC CC Fees" value={cc.fee} onChange={v=>setCc(p=>({...p,fee:v}))}/>
+          <div style={{borderTop:"2px solid #000",marginTop:4,paddingTop:4}}>
+            <F label="Net CC GC" value={c.ncc.toFixed(2)} disabled highlight emphasize/>
+            <F label="Actual GC Deposit" value={c.agd.toFixed(2)} disabled highlight emphasize/>
+          </div>
+        </Card>
+      </div>
+
+      {/* 6. Safe + Cash Detail */}
+      <div className="card-safe">
+        <Card title="Safe + Cash Detail" icon="🔒" color="#A8C5B8" bg="#EEF7F1" badge={fmt(c.endCash)}>
+          <div className="sales-cols" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+            <F label="Actual Cash in Safe" value={cash.safe} onChange={v=>setCash(p=>({...p,safe:v}))}/>
+            <F label="GC/SKILL to Safe" value={cash.gcToSafe} onChange={v=>setCash(p=>({...p,gcToSafe:v}))}/>
+            <F label="Safe to GC/SKILL Dep" value={cash.safeToGc} onChange={v=>setCash(p=>({...p,safeToGc:v}))}/>
+            <F label="Bar to Safe" value={cash.barToSafe} onChange={v=>setCash(p=>({...p,barToSafe:v}))}/>
+            <F label="Safe to Bar Deposit" value={cash.safeToBar} onChange={v=>setCash(p=>({...p,safeToBar:v}))}/>
+            <F label="Misc Payout from Safe" value={cash.miscPayout} onChange={v=>setCash(p=>({...p,miscPayout:v}))}/>
+            <F label="Starting Drawer" value={cash.drawer} onChange={v=>setCash(p=>({...p,drawer:v}))}/>
+            <F label="End: Cash in Safe" value={cash.endSafe} onChange={v=>setCash(p=>({...p,endSafe:v}))}/>
+          </div>
+          <F label="End: Total Cash Count" value={c.endCash.toFixed(2)} disabled highlight emphasize/>
+        </Card>
+      </div>
+
+      {/* 7. Comps Detail */}
+      <div className="card-comps">
+        <Card title="Comps Detail" icon="🎁" color="#FF8A5B" bg="#FFEDE2" badge={fmt(c.compsVar)}>
+          <F label="Retail Comps" value={comps.retail} onChange={v=>setComps(p=>({...p,retail:v}))}/>
+          <F label="Kitchen Comps" value={comps.kitchen} onChange={v=>setComps(p=>({...p,kitchen:v}))}/>
+          <F label="Total Comps Entered" value={comps.entered} onChange={v=>setComps(p=>({...p,entered:v}))}/>
+          <div style={{borderTop:"2px solid #000",marginTop:4,paddingTop:4}}>
+            <F label="Variance" value={c.compsVar.toFixed(2)} disabled negative={c.compsVar<0} emphasize/>
+          </div>
+          <Text label="Comp Description" value={compDesc} onChange={setCompDesc} placeholder="e.g. Free meal for VIP guest"/>
+        </Card>
+      </div>
+
+      {/* 8. Bleed */}
+      <div className="card-bleed">
+        <Card title="Bleed" icon="🩸" color="#A03030" bg="#FFE8E8">
+          <F label="Bleed Amount" value={cash.bleed} onChange={v=>setCash(p=>({...p,bleed:v}))}/>
+          <Text label="Bleed Reason" value={cash.bleedReason} onChange={v=>setCash(p=>({...p,bleedReason:v}))} placeholder="Reason for bleed..."/>
+        </Card>
+      </div>
+
+      {/* 9. Employee Shortages */}
       <div className="card-shortages">
         <Card title="Employee Shortages" icon="⚠️" color="#F4A5B0" bg="#FCEFF1">
           <div style={{display:"grid",gridTemplateColumns:"60px 1fr 90px",gap:5,alignItems:"center",marginBottom:4}}>
@@ -545,6 +563,7 @@ export default function App() {
         </Card>
       </div>
 
+      {/* 10. Notes */}
       <div className="card-notes">
         <Card title="Notes" icon="📝" color="#E8C170" bg="#FBF4E3">
           <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Anything else accounting needs to know..." style={{width:"100%",minHeight:80,padding:9,border:"2px solid #B8A99E",borderRadius:7,fontSize:14,resize:"vertical",boxSizing:"border-box",fontFamily:"inherit",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
