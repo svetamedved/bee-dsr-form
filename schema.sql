@@ -1,16 +1,42 @@
 -- =====================================================================
--- DSR Platform schema — ADDITIVE MIGRATION
--- Safe to run on an existing rss_revenue database that already contains:
---   locations (PK: location_id), daily_revenue, daily_cabinet_revenue,
---   machines, revenue_records, etc.
--- This script only ADDS the auth/workflow tables and augments the two
--- revenue tables with a submission_id column so approved DSRs can be
--- linked back to the submission row.
--- Safe to re-run; every statement is idempotent.
+-- DSR Platform schema — IDEMPOTENT, FK-FREE MIGRATION
+-- Safe to run against any state of the rss_revenue DB (empty, partial,
+-- or fully populated). Creates the auth/workflow tables, ensures a
+-- `locations` table exists (even if empty), and augments the existing
+-- daily_revenue / daily_cabinet_revenue tables with submission_id +
+-- vendor so approved DSRs can be linked back to submissions.
+-- Re-runnable: every CREATE is IF NOT EXISTS, every ALTER is conditional.
+--
+-- FKs are intentionally omitted. Referential integrity is enforced in
+-- the application layer; keeping the DB FK-free avoids brittleness when
+-- the parent table's state is uncertain (e.g. fresh prod, staging clone).
 -- =====================================================================
 
 -- -------------------------------------------------
--- USERS: admins + one account per venue (venues reference locations.location_id)
+-- LOCATIONS: venues. Minimal shape; admin UI seeds/edits rows.
+-- Created IF NOT EXISTS so existing fully-populated locations tables
+-- (local dev / legacy) are left untouched.
+-- -------------------------------------------------
+CREATE TABLE IF NOT EXISTS locations (
+  location_id INT AUTO_INCREMENT PRIMARY KEY,
+  location_name VARCHAR(255) NOT NULL,
+  location_status VARCHAR(50) DEFAULT 'active',
+  address_line1 VARCHAR(255) NULL,
+  city VARCHAR(100) NULL,
+  state VARCHAR(50) NULL,
+  zip_code VARCHAR(20) NULL,
+  contact_name VARCHAR(255) NULL,
+  contact_phone VARCHAR(50) NULL,
+  contact_email VARCHAR(255) NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_loc_name (location_name),
+  INDEX idx_loc_status (location_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -------------------------------------------------
+-- USERS: admins + one account per venue.
 -- -------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -23,14 +49,12 @@ CREATE TABLE IF NOT EXISTS users (
   must_change_password TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   last_login_at TIMESTAMP NULL,
-  CONSTRAINT fk_users_location FOREIGN KEY (location_id) REFERENCES locations(location_id) ON DELETE SET NULL,
-  INDEX idx_users_role (role)
+  INDEX idx_users_role (role),
+  INDEX idx_users_location (location_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -------------------------------------------------
 -- SUBMISSIONS: one row per DSR submission.
--- Full JSON payload + status + review metadata.
--- Revenue tables are only written on approval.
 -- -------------------------------------------------
 CREATE TABLE IF NOT EXISTS submissions (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -45,55 +69,17 @@ CREATE TABLE IF NOT EXISTS submissions (
   reviewed_at TIMESTAMP NULL,
   reviewed_by INT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_sub_location FOREIGN KEY (location_id) REFERENCES locations(location_id),
-  CONSTRAINT fk_sub_user     FOREIGN KEY (user_id)     REFERENCES users(id),
-  CONSTRAINT fk_sub_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
   UNIQUE KEY uniq_location_date (location_id, report_date),
   INDEX idx_sub_status (status),
-  INDEX idx_sub_date (report_date)
+  INDEX idx_sub_date (report_date),
+  INDEX idx_sub_location (location_id),
+  INDEX idx_sub_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -------------------------------------------------
--- Augment existing revenue tables with a link back to the submission.
--- MySQL proper doesn't support `IF NOT EXISTS` on ADD COLUMN (that's a
--- MariaDB extension), so we do conditional ALTERs via prepared statements.
--- Each block is a no-op if the column/index already exists.
--- -------------------------------------------------
-
--- daily_revenue.submission_id
-SET @has_col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_revenue' AND COLUMN_NAME = 'submission_id');
-SET @sql := IF(@has_col = 0, 'ALTER TABLE daily_revenue ADD COLUMN submission_id INT NULL AFTER id', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- daily_revenue.idx_dr_submission
-SET @has_idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_revenue' AND INDEX_NAME = 'idx_dr_submission');
-SET @sql := IF(@has_idx = 0, 'ALTER TABLE daily_revenue ADD INDEX idx_dr_submission (submission_id)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- daily_cabinet_revenue.submission_id
-SET @has_col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_cabinet_revenue' AND COLUMN_NAME = 'submission_id');
-SET @sql := IF(@has_col = 0, 'ALTER TABLE daily_cabinet_revenue ADD COLUMN submission_id INT NULL AFTER id', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- daily_cabinet_revenue.vendor
-SET @has_col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_cabinet_revenue' AND COLUMN_NAME = 'vendor');
-SET @sql := IF(@has_col = 0, 'ALTER TABLE daily_cabinet_revenue ADD COLUMN vendor VARCHAR(100) NULL AFTER report_date', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- daily_cabinet_revenue.idx_dcr_submission
-SET @has_idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_cabinet_revenue' AND INDEX_NAME = 'idx_dcr_submission');
-SET @sql := IF(@has_idx = 0, 'ALTER TABLE daily_cabinet_revenue ADD INDEX idx_dcr_submission (submission_id)', 'SELECT 1');
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- -------------------------------------------------
 -- daily_sales_summary: holds the non-game-revenue DSR fields
--- (bar/kitchen/retail sales, taxes, tips, deposits, etc.) that the
--- existing revenue tables don't cover. Populated on approval.
+-- (bar/kitchen/retail sales, taxes, tips, deposits, etc.). Populated
+-- when a submission is approved.
 -- -------------------------------------------------
 CREATE TABLE IF NOT EXISTS daily_sales_summary (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -131,6 +117,38 @@ CREATE TABLE IF NOT EXISTS daily_sales_summary (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -------------------------------------------------
--- NOTE: the `locations` table already exists (PK: location_id) and
--- is seeded with your 19 venues. This script does NOT touch it.
+-- Conditional ALTERs on existing revenue tables.
+-- MySQL/TiDB don't support ADD COLUMN IF NOT EXISTS, so we check
+-- INFORMATION_SCHEMA first and build the ALTER dynamically.
+-- Each block is a no-op if the column/index already exists.
 -- -------------------------------------------------
+
+-- daily_revenue.submission_id
+SET @has_col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_revenue' AND COLUMN_NAME = 'submission_id');
+SET @sql := IF(@has_col = 0, 'ALTER TABLE daily_revenue ADD COLUMN submission_id INT NULL AFTER id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- daily_revenue.idx_dr_submission
+SET @has_idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_revenue' AND INDEX_NAME = 'idx_dr_submission');
+SET @sql := IF(@has_idx = 0, 'ALTER TABLE daily_revenue ADD INDEX idx_dr_submission (submission_id)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- daily_cabinet_revenue.submission_id
+SET @has_col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_cabinet_revenue' AND COLUMN_NAME = 'submission_id');
+SET @sql := IF(@has_col = 0, 'ALTER TABLE daily_cabinet_revenue ADD COLUMN submission_id INT NULL AFTER id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- daily_cabinet_revenue.vendor
+SET @has_col := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_cabinet_revenue' AND COLUMN_NAME = 'vendor');
+SET @sql := IF(@has_col = 0, 'ALTER TABLE daily_cabinet_revenue ADD COLUMN vendor VARCHAR(100) NULL AFTER report_date', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- daily_cabinet_revenue.idx_dcr_submission
+SET @has_idx := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_cabinet_revenue' AND INDEX_NAME = 'idx_dcr_submission');
+SET @sql := IF(@has_idx = 0, 'ALTER TABLE daily_cabinet_revenue ADD INDEX idx_dcr_submission (submission_id)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
