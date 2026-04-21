@@ -119,7 +119,7 @@ export default function App() {
 .dsr-header-total{text-align:right;padding:2px 10px;border-left:2px solid #000}
 @media (max-width:1100px){.dsr-header-inner{grid-template-columns:auto 1fr;grid-template-rows:auto auto;gap:8px}.dsr-header-inputs{grid-column:1/-1;order:3}.dsr-header-actions{justify-self:end}}
 @media (max-width:640px){.dsr-header{padding:8px 12px}.dsr-header-inner{grid-template-columns:1fr;gap:6px}.dsr-header-actions{justify-self:stretch;justify-content:space-between}.dsr-header-total{border-left:none;padding-left:0}.dsr-header-inputs{flex-wrap:wrap}.dsr-header-inputs>select{flex:1 1 100%}.dsr-header-inputs>input{flex:1 1 calc(50% - 4px)}}
-.cards-grid{max-width:1500px;margin:0 auto;padding:12px;display:grid;grid-template-columns:repeat(12,1fr);gap:12px;box-sizing:border-box}
+.cards-grid{max-width:1500px;margin:0 auto;padding:12px;display:grid;grid-template-columns:repeat(12,1fr);gap:12px;box-sizing:border-box;align-items:start}
 .cards-grid>*{min-width:0}
 .card-sweeps{grid-column:span 6}
 .card-rp{grid-column:span 6}
