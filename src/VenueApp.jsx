@@ -67,8 +67,8 @@ export default function VenueApp({ user, onLogout }) {
 
   return (
     <div>
-      <div style={topbar}>
-        <div style={{fontSize:11,fontWeight:700,color:'#3D2E1F'}}>
+      <div className="venue-topbar" style={topbar}>
+        <div className="venue-user" style={{fontSize:11,fontWeight:700,color:'#3D2E1F'}}>
           Signed in as <b>{user.email}</b> · <b>{user.location_name || '—'}</b>
         </div>
         <button onClick={() => { clearToken(); onLogout(); }} style={btn}>Sign out</button>
@@ -91,34 +91,36 @@ export default function VenueApp({ user, onLogout }) {
           {history.length === 0 ? (
             <div style={{padding:20,color:'#6B5A4E',fontStyle:'italic'}}>No submissions yet.</div>
           ) : (
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-              <thead>
-                <tr style={{background:'#FBF2D8',textAlign:'left'}}>
-                  <th style={th}>Date</th>
-                  <th style={th}>Status</th>
-                  <th style={th}>Submitted</th>
-                  <th style={th}>Notes</th>
-                  <th style={th}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map(h => (
-                  <tr key={h.id} style={{borderTop:'1px solid #F5EBE0'}}>
-                    <td style={td}><b>{fmtDate(h.report_date)}</b></td>
-                    <td style={td}><StatusBadge status={h.status}/></td>
-                    <td style={{...td,color:'#6B5A4E',fontSize:12}}>{h.submitted_at ? new Date(h.submitted_at).toLocaleString() : ''}</td>
-                    <td style={{...td,fontSize:12,color:'#6B1818',maxWidth:260}}>
-                      {h.status === 'rejected' && h.admin_notes ? h.admin_notes : ''}
-                    </td>
-                    <td style={{...td,textAlign:'right'}}>
-                      <button onClick={() => editSubmission(h.id)} style={linkBtn}>
-                        {h.status === 'approved' ? 'View' : 'Edit'}
-                      </button>
-                    </td>
+            <div className="table-wrap">
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{background:'#FBF2D8',textAlign:'left'}}>
+                    <th style={th}>Date</th>
+                    <th style={th}>Status</th>
+                    <th style={th}>Submitted</th>
+                    <th style={th}>Notes</th>
+                    <th style={th}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {history.map(h => (
+                    <tr key={h.id} style={{borderTop:'1px solid #F5EBE0'}}>
+                      <td style={td}><b>{fmtDate(h.report_date)}</b></td>
+                      <td style={td}><StatusBadge status={h.status}/></td>
+                      <td style={{...td,color:'#6B5A4E',fontSize:12}}>{h.submitted_at ? new Date(h.submitted_at).toLocaleString() : ''}</td>
+                      <td style={{...td,fontSize:12,color:'#6B1818',maxWidth:260}}>
+                        {h.status === 'rejected' && h.admin_notes ? h.admin_notes : ''}
+                      </td>
+                      <td style={{...td,textAlign:'right'}}>
+                        <button onClick={() => editSubmission(h.id)} style={linkBtn}>
+                          {h.status === 'approved' ? 'View' : 'Edit'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

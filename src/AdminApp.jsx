@@ -25,9 +25,9 @@ export default function AdminApp({ user, onLogout }) {
   return (
     <div style={{minHeight:'100vh',background:'#F5EBE0',fontFamily:"'DM Sans',-apple-system,sans-serif"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;900&family=Fraunces:wght@700;900&display=swap" rel="stylesheet"/>
-      <div style={{background:'#000',color:'#FAD6A5',padding:'10px 20px',display:'flex',alignItems:'center',gap:14,borderBottom:'4px solid #FAD6A5'}}>
+      <div className="admin-topbar" style={{background:'#000',color:'#FAD6A5',padding:'10px 20px',display:'flex',alignItems:'center',gap:14,borderBottom:'4px solid #FAD6A5'}}>
         <div style={{fontSize:18,fontWeight:900,fontFamily:"'Fraunces',serif"}}>DSR Admin</div>
-        <div style={{flex:1,display:'flex',gap:4}}>
+        <div className="admin-tabs" style={{flex:1,display:'flex',gap:4}}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
               style={{padding:'7px 14px',fontSize:11,fontWeight:900,letterSpacing:1,textTransform:'uppercase',
@@ -36,7 +36,7 @@ export default function AdminApp({ user, onLogout }) {
                 color: tab === t ? '#000' : '#FAD6A5'}}>{t}</button>
           ))}
         </div>
-        <div style={{fontSize:11,opacity:0.85}}>{user.email}</div>
+        <div className="admin-user-email" style={{fontSize:11,opacity:0.85}}>{user.email}</div>
         <button onClick={() => { clearToken(); onLogout(); }}
           style={{padding:'5px 11px',fontSize:10,fontWeight:900,border:'2px solid #FAD6A5',background:'transparent',color:'#FAD6A5',borderRadius:6,cursor:'pointer'}}>
           Sign out
@@ -44,7 +44,7 @@ export default function AdminApp({ user, onLogout }) {
       </div>
 
       {!reviewing ? (
-        <div style={{padding:20,maxWidth:1200,margin:'0 auto'}}>
+        <div className="admin-body" style={{padding:20,maxWidth:1200,margin:'0 auto'}}>
           {tab === 'Pending' && <SubmissionList status="pending" onReview={setReviewing} refresh={refresh}/>}
           {tab === 'All submissions' && <SubmissionList onReview={setReviewing} refresh={refresh}/>}
           {tab === 'Users' && <UserManager/>}
@@ -76,32 +76,34 @@ function SubmissionList({ status, onReview, refresh }) {
       {rows.length === 0 ? (
         <div style={{padding:20,color:'#6B5A4E',fontStyle:'italic'}}>Nothing here.</div>
       ) : (
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-          <thead>
-            <tr style={{background:'#FBF2D8',textAlign:'left'}}>
-              <th style={th}>Date</th>
-              <th style={th}>Location</th>
-              <th style={th}>Submitter</th>
-              <th style={th}>Status</th>
-              <th style={th}>Submitted at</th>
-              <th style={th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(r => (
-              <tr key={r.id} style={{borderTop:'1px solid #F5EBE0'}}>
-                <td style={td}><b>{fmtDate(r.report_date)}</b></td>
-                <td style={td}>{r.location_name}</td>
-                <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{r.submitter_email}</td>
-                <td style={td}><StatusBadge status={r.status}/></td>
-                <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{r.submitted_at && new Date(r.submitted_at).toLocaleString()}</td>
-                <td style={{...td,textAlign:'right'}}>
-                  <button style={linkBtn} onClick={() => onReview(r)}>Review</button>
-                </td>
+        <div className="table-wrap">
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{background:'#FBF2D8',textAlign:'left'}}>
+                <th style={th}>Date</th>
+                <th style={th}>Location</th>
+                <th style={th}>Submitter</th>
+                <th style={th}>Status</th>
+                <th style={th}>Submitted at</th>
+                <th style={th}></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id} style={{borderTop:'1px solid #F5EBE0'}}>
+                  <td style={td}><b>{fmtDate(r.report_date)}</b></td>
+                  <td style={td}>{r.location_name}</td>
+                  <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{r.submitter_email}</td>
+                  <td style={td}><StatusBadge status={r.status}/></td>
+                  <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{r.submitted_at && new Date(r.submitted_at).toLocaleString()}</td>
+                  <td style={{...td,textAlign:'right'}}>
+                    <button style={linkBtn} onClick={() => onReview(r)}>Review</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -153,10 +155,10 @@ function ReviewSubmission({ user, submission, onDone }) {
   const isPending = full.status === 'pending';
   return (
     <div>
-      <div style={{position:'sticky',top:0,zIndex:99,background:'#FFFDF9',borderBottom:'2px solid #000',padding:'10px 20px',
+      <div className="review-header" style={{position:'sticky',top:0,zIndex:99,background:'#FFFDF9',borderBottom:'2px solid #000',padding:'10px 20px',
         display:'flex',alignItems:'center',gap:12,boxShadow:'0 3px 12px #0002'}}>
         <button onClick={onDone} style={linkBtn}>← Back</button>
-        <div style={{flex:1,fontSize:14,fontWeight:800}}>
+        <div className="review-title" style={{flex:1,fontSize:14,fontWeight:800}}>
           Review: <b>{full.location_name}</b> · {fmtDate(full.report_date)} · {full.submitter_email} <StatusBadge status={full.status}/>
         </div>
         {full.status === 'approved' && (
@@ -239,7 +241,7 @@ function UserManager() {
   };
 
   return (
-    <div style={{display:'grid',gap:20,gridTemplateColumns:'minmax(280px,380px) 1fr'}}>
+    <div className="user-grid" style={{display:'grid',gap:20,gridTemplateColumns:'minmax(280px,380px) 1fr'}}>
       <div style={card}>
         <div style={cardHeader}>Create user</div>
         <form onSubmit={create} style={{padding:16,display:'flex',flexDirection:'column',gap:8}}>
@@ -268,34 +270,36 @@ function UserManager() {
 
       <div style={card}>
         <div style={cardHeader}>All users</div>
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-          <thead>
-            <tr style={{background:'#FBF2D8',textAlign:'left'}}>
-              <th style={th}>Email</th><th style={th}>Role</th><th style={th}>Location</th>
-              <th style={th}>Active</th><th style={th}>Last login</th><th style={th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id} style={{borderTop:'1px solid #F5EBE0'}}>
-                <td style={td}><b>{u.email}</b>{u.name ? <span style={{color:'#6B5A4E'}}> · {u.name}</span> : null}</td>
-                <td style={td}>{u.role}</td>
-                <td style={td}>{u.location_name || '—'}</td>
-                <td style={td}>
-                  <button onClick={() => toggleActive(u)}
-                    style={{padding:'3px 8px',fontSize:10,fontWeight:800,border:'2px solid #000',borderRadius:6,
-                      background: u.active ? '#B8D4A8' : '#FFE8E8', cursor:'pointer'}}>
-                    {u.active ? 'Active' : 'Disabled'}
-                  </button>
-                </td>
-                <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}</td>
-                <td style={{...td,textAlign:'right'}}>
-                  <button style={linkBtn} onClick={() => resetPassword(u)}>Reset PW</button>
-                </td>
+        <div className="table-wrap">
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{background:'#FBF2D8',textAlign:'left'}}>
+                <th style={th}>Email</th><th style={th}>Role</th><th style={th}>Location</th>
+                <th style={th}>Active</th><th style={th}>Last login</th><th style={th}></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} style={{borderTop:'1px solid #F5EBE0'}}>
+                  <td style={td}><b>{u.email}</b>{u.name ? <span style={{color:'#6B5A4E'}}> · {u.name}</span> : null}</td>
+                  <td style={td}>{u.role}</td>
+                  <td style={td}>{u.location_name || '—'}</td>
+                  <td style={td}>
+                    <button onClick={() => toggleActive(u)}
+                      style={{padding:'3px 8px',fontSize:10,fontWeight:800,border:'2px solid #000',borderRadius:6,
+                        background: u.active ? '#B8D4A8' : '#FFE8E8', cursor:'pointer'}}>
+                      {u.active ? 'Active' : 'Disabled'}
+                    </button>
+                  </td>
+                  <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}</td>
+                  <td style={{...td,textAlign:'right'}}>
+                    <button style={linkBtn} onClick={() => resetPassword(u)}>Reset PW</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
