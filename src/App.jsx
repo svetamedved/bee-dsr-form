@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { jsPDF } from "jspdf";
 
 const LOCS = ["BE Station Brady","BES 2 Rockport","BES 4 Kingsbury","BES 6 Buchanan Dam","BES 7 San Antonio","BES 8 Pflugerville","BES 10 - Crossroads Robstown","BES Giddings","Icehouse in SA","Lucky Cosmos Buda","MT 4 Corsicana","MT 5 Conroe","Music City","My Office Club","Skillzone 1 Porter","Skillzone 2 Mt Pleasant","Speakeasy Lakeway","Starlite Saloon","Whiskey Room"];
 const VEND = [{k:"mav",l:"Maverick",c:"#FF8A5B",bg:"#FFEDE2"},{k:"rim",l:"Rimfire",c:"#8FB89A",bg:"#EAF3EC"},{k:"phx",l:"Phoenix",c:"#9B6B9E",bg:"#F0E6F1"},{k:"river",l:"Riversweep",c:"#4A9BAE",bg:"#E3F0F4"},{k:"gd",l:"Golden Dragon",c:"#D4A027",bg:"#FBF2D8"}];
@@ -108,6 +109,209 @@ export default function App() {
     }
   };
 
+  // --- Share / Export ---
+  const [showExport, setShowExport] = useState(false);
+  const exportRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (exportRef.current && !exportRef.current.contains(e.target)) setShowExport(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const dl = (blob, name) => { const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); };
+  const dateSuffix = `${loc||"report"}_${dt}`.replace(/\s+/g,"_");
+
+  const exportPDF = () => {
+    const doc = new jsPDF({ unit:"pt", format:"letter" });
+    const pw = doc.internal.pageSize.getWidth();
+    let y = 40;
+    const lm = 40, rm = pw - 40;
+    const line = (txt, val, bold) => {
+      if (y > 720) { doc.addPage(); y = 40; }
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(bold ? 11 : 10);
+      doc.text(txt, lm, y);
+      if (val !== undefined) doc.text(String(val), rm, y, { align: "right" });
+      y += bold ? 18 : 15;
+    };
+    const heading = (txt) => {
+      if (y > 700) { doc.addPage(); y = 40; }
+      y += 6;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+      doc.text(txt, lm, y); y += 4;
+      doc.setDrawColor(0); doc.setLineWidth(1); doc.line(lm, y, rm, y); y += 14;
+    };
+    // Title
+    doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+    doc.text("DAILY SALES REPORT", pw / 2, y, { align: "center" }); y += 20;
+    doc.setFontSize(10); doc.setFont("helvetica", "normal");
+    doc.text(`Location: ${loc || "—"}    Date: ${dt}    Manager: ${mgr || "—"}`, pw / 2, y, { align: "center" }); y += 24;
+    doc.setDrawColor(0); doc.setLineWidth(2); doc.line(lm, y, rm, y); y += 16;
+
+    heading("SWEEPSTAKES (GC / FP)");
+    VEND.forEach(v => line(`  ${v.l}`, `In: ${fmt(gc[v.k].i)}   Out: ${fmt(gc[v.k].o)}   Net: ${fmt(c.vn[v.k])}`));
+    line("Total Points In", fmt(c.ti), true);
+    line("Total Prizes Out", fmt(c.to), true);
+    line("Net GC / FP", fmt(c.ng), true);
+
+    heading("COMPS DETAIL");
+    line("Retail Comps", fmt(comps.retail));
+    line("Kitchen Comps", fmt(comps.kitchen));
+    line("Total Comps Entered", fmt(comps.entered));
+    line("Variance", fmt(c.compsVar), true);
+    if (compDesc) line("Description", compDesc);
+
+    heading("BLEED");
+    line("Bleed Amount", fmt(cash.bleed));
+    if (cash.bleedReason) line("Reason", cash.bleedReason);
+
+    heading("GC CREDIT CARDS");
+    line("GC CC Total", fmt(cc.tot));
+    line("GC CC Fees", fmt(cc.fee));
+    line("Net CC GC", fmt(c.ncc), true);
+    line("Actual GC Deposit", fmt(c.agd), true);
+
+    heading("EASY PLAY (COAM)");
+    line("EP TIME Total", fmt(ep.total));
+    line("EP TIME (No FP)", fmt(ep.noFP));
+    line("EP TIME (FP)", fmt(ep.fp));
+    line("EP TIME (FP) Total", fmt(c.epTotal), true);
+    line("Variance", fmt(c.epVariance), true);
+
+    heading("SAFE + CASH DETAIL");
+    line("Actual Cash in Safe", fmt(cash.safe));
+    line("GC/SKILL to Safe", fmt(cash.gcToSafe));
+    line("Safe to GC/SKILL Dep", fmt(cash.safeToGc));
+    line("Bar to Safe", fmt(cash.barToSafe));
+    line("Safe to Bar Deposit", fmt(cash.safeToBar));
+    line("Misc Payout from Safe", fmt(cash.miscPayout));
+    line("Starting Drawer", fmt(cash.drawer));
+    line("End: Cash in Safe", fmt(cash.endSafe));
+    line("End: Total Cash Count", fmt(c.endCash), true);
+
+    heading("SKILL VENDING — CARDINAL XPRESS");
+    line("Cardinal In", fmt(cardinal.in)); line("Cardinal Out", fmt(cardinal.out));
+    line("Net Cardinal", fmt(c.cxNet), true);
+    cardCabs.forEach((cab, i) => line(`  Cab ${i+1} (${cab.name}) S/N: ${cab.serial||"—"}`, `In: ${fmt(cab.in)}  Out: ${fmt(cab.out)}  Net: ${fmt(cab.in-cab.out)}`));
+    line("Total Cardinal Cab Net", fmt(c.cxCabNet), true);
+
+    heading("SKILL VENDING — RED PLUM");
+    line("Red Plum In", fmt(rp.in)); line("Red Plum Out", fmt(rp.out));
+    line("Net Red Plum", fmt(c.rpNet), true);
+    rpCabs.forEach((cab, i) => line(`  Cab ${i+1} (${cab.name}) TID: ${cab.tid||"—"} S/N: ${cab.serial||"—"}`, `In: ${fmt(cab.in)}  Out: ${fmt(cab.out)}  Net: ${fmt(cab.in-cab.out)}`));
+    line("Total Red Plum Cab Net", fmt(c.rpCabNet), true);
+    line("Skill Deposit", fmt(skillDeposit), true);
+
+    heading("SALES DETAIL");
+    line("Easy Play CARD", fmt(s.epCard)); line("Easy Play CREDITS", fmt(s.epCredits));
+    line("Bar Sales", fmt(s.bar)); line("Kitchen Sales", fmt(s.kitchen));
+    line("Gift Cert Sales", fmt(s.gcSales)); line("Retail Sales", fmt(s.retail));
+    line("Comps (-)", fmt(s.comps)); line("Discounts (-)", fmt(s.disc)); line("Spills (-)", fmt(s.spills));
+    line("NET SALES", fmt(c.ns), true);
+    y += 4;
+    line("Total Credit Cards", fmt(s.cc)); line("Bar Credit Cards", fmt(s.barCC));
+    line("Non-Cash Adj Fees", fmt(s.nonCashFees));
+    line("Total Taxes", fmt(s.taxes)); line("Total Tips", fmt(s.tips));
+    line("Recoveries", fmt(s.rec));
+    line("GC Redemptions", fmt(s.gcRedemptions)); line("GC Conversions", fmt(s.gcConversions));
+    line("Pool Drop", fmt(poolDrop));
+    line("TOTAL CASH DEPOSIT", fmt(c.tcd), true);
+
+    heading("EMPLOYEE SHORTAGES");
+    if (shortage.gcName || shortage.gcAmt) line(`GC: ${shortage.gcName||"—"}`, fmt(shortage.gcAmt));
+    if (shortage.skillName || shortage.skillAmt) line(`Skill: ${shortage.skillName||"—"}`, fmt(shortage.skillAmt));
+    if (shortage.salesName || shortage.salesAmt) line(`Sales: ${shortage.salesName||"—"}`, fmt(shortage.salesAmt));
+
+    if (notes) { heading("NOTES"); doc.setFont("helvetica","normal"); doc.setFontSize(10); const lines = doc.splitTextToSize(notes, rm - lm); doc.text(lines, lm, y); y += lines.length * 14; }
+
+    heading("TOTALS SUMMARY");
+    line("GC Deposit", fmt(c.agd), true);
+    line("Skill Deposit", fmt(skillDeposit), true);
+    line("Cash Deposit", fmt(c.tcd), true);
+    y += 4;
+    doc.setFontSize(14); doc.setFont("helvetica","bold");
+    doc.text("TOTAL DEPOSIT", lm, y); doc.text(fmt(c.td), rm, y, { align:"right" }); y += 20;
+
+    doc.save(`DSR_${dateSuffix}.pdf`);
+    setShowExport(false);
+  };
+
+  const exportCSV = () => {
+    const h = [], v = [];
+    const add = (label, val) => { h.push(`"${label}"`); v.push(typeof val === "number" ? val.toFixed(2) : `"${String(val).replace(/"/g,'""')}"`); };
+    add("Location", loc); add("Date", dt); add("Manager", mgr);
+    VEND.forEach(vn => { add(`${vn.l} In`, gc[vn.k].i); add(`${vn.l} Out`, gc[vn.k].o); add(`${vn.l} Net`, c.vn[vn.k]); });
+    add("Total Points In", c.ti); add("Total Prizes Out", c.to); add("Net GC/FP", c.ng);
+    add("Retail Comps", comps.retail); add("Kitchen Comps", comps.kitchen); add("Total Comps Entered", comps.entered); add("Comps Variance", c.compsVar); add("Comps Description", compDesc);
+    add("Bleed Amount", cash.bleed); add("Bleed Reason", cash.bleedReason);
+    add("GC CC Total", cc.tot); add("GC CC Fees", cc.fee); add("Net CC GC", c.ncc); add("Actual GC Deposit", c.agd);
+    add("EP Total", ep.total); add("EP No FP", ep.noFP); add("EP FP", ep.fp); add("EP FP Total", c.epTotal); add("EP Variance", c.epVariance);
+    add("Cash in Safe", cash.safe); add("GC/Skill to Safe", cash.gcToSafe); add("Safe to GC/Skill", cash.safeToGc);
+    add("Bar to Safe", cash.barToSafe); add("Safe to Bar", cash.safeToBar); add("Misc Payout", cash.miscPayout);
+    add("Starting Drawer", cash.drawer); add("End Cash in Safe", cash.endSafe); add("Total Cash Count", c.endCash);
+    add("Cardinal In", cardinal.in); add("Cardinal Out", cardinal.out); add("Cardinal Net", c.cxNet);
+    cardCabs.forEach((cab, i) => { add(`CX Cab${i+1} Name`, cab.name); add(`CX Cab${i+1} Serial`, cab.serial); add(`CX Cab${i+1} In`, cab.in); add(`CX Cab${i+1} Out`, cab.out); });
+    add("Cardinal Cab Net", c.cxCabNet);
+    add("Red Plum In", rp.in); add("Red Plum Out", rp.out); add("Red Plum Net", c.rpNet);
+    rpCabs.forEach((cab, i) => { add(`RP Cab${i+1} Name`, cab.name); add(`RP Cab${i+1} TID`, cab.tid); add(`RP Cab${i+1} Serial`, cab.serial); add(`RP Cab${i+1} In`, cab.in); add(`RP Cab${i+1} Out`, cab.out); });
+    add("Red Plum Cab Net", c.rpCabNet); add("Skill Deposit", skillDeposit);
+    add("EP Card Sales", s.epCard); add("EP Credits Sales", s.epCredits); add("Bar Sales", s.bar); add("Kitchen Sales", s.kitchen);
+    add("GC Sales", s.gcSales); add("Retail Sales", s.retail); add("Comps", s.comps); add("Discounts", s.disc); add("Spills", s.spills);
+    add("Net Sales", c.ns); add("Total CC", s.cc); add("Bar CC", s.barCC); add("Non-Cash Fees", s.nonCashFees);
+    add("Taxes", s.taxes); add("Tips", s.tips); add("Recoveries", s.rec);
+    add("GC Redemptions", s.gcRedemptions); add("GC Conversions", s.gcConversions); add("Pool Drop", poolDrop);
+    add("Total Cash Deposit", c.tcd);
+    add("Shortage GC Name", shortage.gcName); add("Shortage GC Amt", shortage.gcAmt);
+    add("Shortage Skill Name", shortage.skillName); add("Shortage Skill Amt", shortage.skillAmt);
+    add("Shortage Sales Name", shortage.salesName); add("Shortage Sales Amt", shortage.salesAmt);
+    add("Notes", notes);
+    add("GC Deposit", c.agd); add("Skill Deposit Total", skillDeposit); add("Cash Deposit", c.tcd); add("Total Deposit", c.td);
+    const csv = h.join(",") + "\n" + v.join(",") + "\n";
+    dl(new Blob([csv], { type: "text/csv" }), `DSR_${dateSuffix}.csv`);
+    setShowExport(false);
+  };
+
+  const exportIIF = () => {
+    // QuickBooks IIF format — General Journal entry
+    const d = dt.replace(/-/g, "/"); // MM/DD/YYYY format QB expects
+    const parts = d.split("/"); const qbDate = `${parts[1]}/${parts[2]}/${parts[0]}`; // YYYY-MM-DD → MM/DD/YYYY
+    const memo = `DSR ${loc} ${dt}`;
+    const lines = [];
+    lines.push("!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tMEMO");
+    lines.push("!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tMEMO");
+    lines.push("!ENDTRNS");
+    // Main transaction line (total deposit to Undeposited Funds)
+    lines.push(`TRNS\tGENERAL JOURNAL\t${qbDate}\tUndeposited Funds\t${loc}\t${c.td.toFixed(2)}\t${memo}`);
+    // Split lines for each revenue/deposit category
+    if (c.agd !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tGC Deposit\t${loc}\t${(-c.agd).toFixed(2)}\tGC Deposit - ${loc}`);
+    if (skillDeposit !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tSkill Deposit\t${loc}\t${(-skillDeposit).toFixed(2)}\tSkill Deposit - ${loc}`);
+    if (c.tcd !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCash Deposit\t${loc}\t${(-c.tcd).toFixed(2)}\tCash Deposit - ${loc}`);
+    // Sweepstakes breakdown
+    if (c.ti !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tSweepstakes Points In\t${loc}\t${(-c.ti).toFixed(2)}\tTotal Points In`);
+    if (c.to !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tSweepstakes Prizes Out\t${loc}\t${c.to.toFixed(2)}\tTotal Prizes Out`);
+    // Credit cards
+    if (cc.tot !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCredit Card Receipts\t${loc}\t${(-cc.tot).toFixed(2)}\tGC CC Total`);
+    if (cc.fee !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCredit Card Fees\t${loc}\t${cc.fee.toFixed(2)}\tGC CC Fees`);
+    // Sales
+    if (s.bar !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tBar Sales\t${loc}\t${(-s.bar).toFixed(2)}\tBar Sales`);
+    if (s.kitchen !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tKitchen Sales\t${loc}\t${(-s.kitchen).toFixed(2)}\tKitchen Sales`);
+    if (s.gcSales !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tGift Cert Sales\t${loc}\t${(-s.gcSales).toFixed(2)}\tGift Cert Sales`);
+    if (s.retail !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRetail Sales\t${loc}\t${(-s.retail).toFixed(2)}\tRetail Sales`);
+    // EP
+    if (ep.total !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEasy Play Revenue\t${loc}\t${(-ep.total).toFixed(2)}\tEP Total`);
+    // Skill vending
+    if (c.cxCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCardinal Xpress Revenue\t${loc}\t${(-c.cxCabNet).toFixed(2)}\tCardinal Net`);
+    if (c.rpCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRed Plum Revenue\t${loc}\t${(-c.rpCabNet).toFixed(2)}\tRed Plum Net`);
+    // Shortages
+    if (shortage.gcAmt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${shortage.gcName||loc}\t${(-shortage.gcAmt).toFixed(2)}\tGC Shortage`);
+    if (shortage.skillAmt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${shortage.skillName||loc}\t${(-shortage.skillAmt).toFixed(2)}\tSkill Shortage`);
+    if (shortage.salesAmt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${shortage.salesName||loc}\t${(-shortage.salesAmt).toFixed(2)}\tSales Shortage`);
+    lines.push("ENDTRNS");
+    const iif = lines.join("\r\n") + "\r\n";
+    dl(new Blob([iif], { type: "application/octet-stream" }), `DSR_${dateSuffix}.iif`);
+    setShowExport(false);
+  };
+
   return <div style={{minHeight:"100vh",background:"linear-gradient(180deg, #4A3B5C 0%, #8B6F8E 12%, #D89AA5 28%, #F5B88B 45%, #FAD6A5 65%, #FCE8C8 100%)",padding:"0 0 40px",fontFamily:"'DM Sans',-apple-system,sans-serif"}}>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:wght@700;900&display=swap" rel="stylesheet"/>
     <style>{`
@@ -143,6 +347,14 @@ export default function App() {
       <div className="dsr-header-actions">
         <div className="dsr-header-total"><div style={{fontSize:8,color:"#6B5A4E",letterSpacing:2,fontWeight:800}}>TOTAL</div><div style={{fontSize:16,fontWeight:900,color:"#000",fontFamily:"'JetBrains Mono',monospace"}}>{fmt(c.td)}</div></div>
         <button onClick={handleSubmit} style={{padding:"9px 18px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer",background:ok?"#B8D4A8":"#000",color:ok?"#000":"#FAD6A5",boxShadow:"3px 3px 0 #000"}}>{ok?"SAVED":"SUBMIT"}</button>
+        <div ref={exportRef} style={{position:"relative"}}>
+          <button onClick={()=>setShowExport(p=>!p)} style={{padding:"9px 14px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer",background:"#FAD6A5",color:"#000",boxShadow:"3px 3px 0 #000"}}>EXPORT ▾</button>
+          {showExport && <div style={{position:"absolute",right:0,top:"110%",background:"#FFFDF9",border:"2px solid #000",borderRadius:8,boxShadow:"4px 4px 0 #000",zIndex:100,minWidth:160,overflow:"hidden"}}>
+            <button onClick={exportPDF} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",borderBottom:"1px solid #E8D5C4",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📄 Export PDF</button>
+            <button onClick={exportIIF} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",borderBottom:"1px solid #E8D5C4",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📒 Export IIF</button>
+            <button onClick={exportCSV} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📊 Export CSV</button>
+          </div>}
+        </div>
       </div>
     </div></div>
 
