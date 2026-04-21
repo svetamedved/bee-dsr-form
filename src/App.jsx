@@ -111,15 +111,48 @@ export default function App() {
 
   // --- Share / Export ---
   const [showExport, setShowExport] = useState(false);
+  const [emailPrompt, setEmailPrompt] = useState(null); // {format:"PDF"|"IIF"|"CSV"}
+  const [emailTo, setEmailTo] = useState("");
   const exportRef = useRef(null);
   useEffect(() => {
-    const handler = (e) => { if (exportRef.current && !exportRef.current.contains(e.target)) setShowExport(false); };
+    const handler = (e) => { if (exportRef.current && !exportRef.current.contains(e.target)) { setShowExport(false); setEmailPrompt(null); } };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   const dl = (blob, name) => { const u = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); };
   const dateSuffix = `${loc||"report"}_${dt}`.replace(/\s+/g,"_");
+
+  const buildEmailBody = (formatName) => {
+    const lines = [
+      `Daily Sales Report - ${loc || "Unknown Location"}`,
+      `Date: ${dt}  |  Manager: ${mgr || "—"}`,
+      `Format: ${formatName}`,
+      "",
+      "--- TOTALS ---",
+      `GC Deposit: ${fmt(c.agd)}`,
+      `Skill Deposit: ${fmt(skillDeposit)}`,
+      `Cash Deposit: ${fmt(c.tcd)}`,
+      `TOTAL DEPOSIT: ${fmt(c.td)}`,
+      "",
+      `Net GC/FP: ${fmt(c.ng)}`,
+      `Net Sales: ${fmt(c.ns)}`,
+      `COAMs Total: ${fmt(ep.total)}`,
+      "",
+      "** Please see attached file **",
+    ];
+    return lines.join("\n");
+  };
+
+  const openEmail = () => {
+    if (!emailTo.trim()) { alert("Please enter a recipient email"); return; }
+    const subj = encodeURIComponent(`DSR - ${loc || "Report"} - ${dt}`);
+    const body = encodeURIComponent(buildEmailBody(emailPrompt) + `\n\nFile: DSR_${dateSuffix}.${emailPrompt.toLowerCase()}`);
+    window.open(`mailto:${emailTo.trim()}?subject=${subj}&body=${body}`, "_self");
+    setEmailPrompt(null);
+    setEmailTo("");
+    setShowExport(false);
+  };
 
   const exportPDF = () => {
     const doc = new jsPDF({ unit:"pt", format:"letter" });
@@ -233,7 +266,7 @@ export default function App() {
     doc.text("TOTAL DEPOSIT", lm, y); doc.text(fmt(c.td), rm, y, { align:"right" }); y += 20;
 
     doc.save(`DSR_${dateSuffix}.pdf`);
-    setShowExport(false);
+    setEmailPrompt("PDF");
   };
 
   const exportCSV = () => {
@@ -268,7 +301,7 @@ export default function App() {
     add("GC Deposit", c.agd); add("Skill Deposit Total", skillDeposit); add("Cash Deposit", c.tcd); add("Total Deposit", c.td);
     const csv = h.join(",") + "\n" + v.join(",") + "\n";
     dl(new Blob([csv], { type: "text/csv" }), `DSR_${dateSuffix}.csv`);
-    setShowExport(false);
+    setEmailPrompt("CSV");
   };
 
   const exportIIF = () => {
@@ -309,7 +342,7 @@ export default function App() {
     lines.push("ENDTRNS");
     const iif = lines.join("\r\n") + "\r\n";
     dl(new Blob([iif], { type: "application/octet-stream" }), `DSR_${dateSuffix}.iif`);
-    setShowExport(false);
+    setEmailPrompt("IIF");
   };
 
   return <div style={{minHeight:"100vh",background:"linear-gradient(180deg, #4A3B5C 0%, #8B6F8E 12%, #D89AA5 28%, #F5B88B 45%, #FAD6A5 65%, #FCE8C8 100%)",padding:"0 0 40px",fontFamily:"'DM Sans',-apple-system,sans-serif"}}>
@@ -349,10 +382,20 @@ export default function App() {
         <button onClick={handleSubmit} style={{padding:"9px 18px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer",background:ok?"#B8D4A8":"#000",color:ok?"#000":"#FAD6A5",boxShadow:"3px 3px 0 #000"}}>{ok?"SAVED":"SUBMIT"}</button>
         <div ref={exportRef} style={{position:"relative"}}>
           <button onClick={()=>setShowExport(p=>!p)} style={{padding:"9px 14px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer",background:"#FAD6A5",color:"#000",boxShadow:"3px 3px 0 #000"}}>EXPORT ▾</button>
-          {showExport && <div style={{position:"absolute",right:0,top:"110%",background:"#FFFDF9",border:"2px solid #000",borderRadius:8,boxShadow:"4px 4px 0 #000",zIndex:100,minWidth:160,overflow:"hidden"}}>
-            <button onClick={exportPDF} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",borderBottom:"1px solid #E8D5C4",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📄 Export PDF</button>
-            <button onClick={exportIIF} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",borderBottom:"1px solid #E8D5C4",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📒 Export IIF</button>
-            <button onClick={exportCSV} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📊 Export CSV</button>
+          {(showExport||emailPrompt) && <div style={{position:"absolute",right:0,top:"110%",background:"#FFFDF9",border:"2px solid #000",borderRadius:8,boxShadow:"4px 4px 0 #000",zIndex:100,minWidth:200,overflow:"hidden"}}>
+            {!emailPrompt ? <>
+              <button onClick={exportPDF} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",borderBottom:"1px solid #E8D5C4",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📄 Export PDF</button>
+              <button onClick={exportIIF} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",borderBottom:"1px solid #E8D5C4",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📒 Export IIF</button>
+              <button onClick={exportCSV} style={{display:"block",width:"100%",padding:"10px 16px",border:"none",background:"transparent",fontSize:13,fontWeight:700,color:"#000",cursor:"pointer",textAlign:"left"}}>📊 Export CSV</button>
+            </> : <div style={{padding:"12px 14px"}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#3D2E1F",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>📧 Email {emailPrompt} Report</div>
+              <div style={{fontSize:11,color:"#6B5A4E",marginBottom:8}}>File downloaded! Send via email?</div>
+              <input value={emailTo} onChange={e=>setEmailTo(e.target.value)} placeholder="recipient@email.com" onKeyDown={e=>e.key==="Enter"&&openEmail()} style={{width:"100%",padding:"7px 9px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500,marginBottom:8}}/>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={openEmail} style={{flex:1,padding:"8px 12px",border:"2px solid #000",borderRadius:6,background:"#000",color:"#FAD6A5",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer"}}>SEND</button>
+                <button onClick={()=>{setEmailPrompt(null);setShowExport(false);}} style={{padding:"8px 12px",border:"2px solid #B8A99E",borderRadius:6,background:"transparent",color:"#3D2E1F",fontSize:11,fontWeight:700,cursor:"pointer"}}>SKIP</button>
+              </div>
+            </div>}
           </div>}
         </div>
       </div>
