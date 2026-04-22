@@ -41,6 +41,16 @@ function applyOcrToForm(reportType, parsed, vendorKey, setters) {
   const n = v => (v == null || v === '' || Number.isNaN(+v)) ? null : +v;
   const abs = v => { const x = n(v); return x == null ? null : Math.abs(x); };
 
+  // Auto-enable the matching POS toggle so the fields we're filling are actually
+  // rendered on screen. Without this, e.g. an EP TIME upload on a skill-only
+  // venue silently writes ep.total to state but no UI shows it.
+  if (reportType === 'ep_time' || reportType === 'semnox_terminal') {
+    setters.setPosSemnox?.(true);
+  }
+  if (reportType === 'union_pos') {
+    setters.setPosUnion?.(true);
+  }
+
   if (reportType === 'ep_time') {
     const vmap = [
       ['mav','maverick_in','maverick_out','Maverick'],
@@ -347,7 +357,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       if (initialSubmission?.id) fd.append('submission_id', String(initialSubmission.id));
       const resp = await apiFormData('/api/images', fd);
       // Auto-fill the form from parsed JSON
-      const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash };
+      const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash, setPosSemnox, setPosUnion };
       const fillMsgs = resp.ocr_status === 'parsed'
         ? applyOcrToForm(reportType, resp.parsed, vendorKey, setters)
         : [];
@@ -372,7 +382,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
   const handlePhotoReapply = useCallback((ph) => {
     if (!ph.parsed) return;
-    const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash };
+    const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash, setPosSemnox, setPosUnion };
     const msgs = applyOcrToForm(ph.report_type, ph.parsed, ph.vendorKey, setters);
     setPhotos(p => p.map(x => x.id === ph.id ? { ...x, fillMsgs: msgs } : x));
   }, [ug]);
