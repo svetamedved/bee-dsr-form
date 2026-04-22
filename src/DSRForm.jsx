@@ -52,15 +52,17 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   const [cc, setCc]       = useState({tot: +P.gc_cc_total || 0, fee: +P.gc_cc_fees || 0});
   const [comps, setComps] = useState({retail: +P.comps_retail || 0, kitchen: +P.comps_kitchen || 0, entered: +P.comps_entered || 0});
   const [cash, setCash]   = useState({
-    safe:       +P.cash_safe        || 0,
-    gcToSafe:   +P.cash_gc_to_safe  || 0,
-    safeToGc:   +P.cash_safe_to_gc  || 0,
-    barToSafe:  +P.cash_bar_to_safe || 0,
-    safeToBar:  +P.cash_safe_to_bar || 0,
-    miscPayout: +P.cash_misc_payout || 0,
-    drawer:     +P.cash_drawer      || 0,
-    endSafe:    +P.cash_end_safe    || 0,
-    bleed:      +P.cash_bleed       || 0,
+    safe:       +P.cash_safe         || 0,
+    gcToSafe:   +P.cash_gc_to_safe   || 0,  // labeled "SKILL to Safe" when posSemnox
+    safeToGc:   +P.cash_safe_to_gc   || 0,  // labeled "Safe to SKILL" when posSemnox
+    epToSafe:   +P.cash_ep_to_safe   || 0,  // only shown when both POSes on
+    safeToEp:   +P.cash_safe_to_ep   || 0,
+    barToSafe:  +P.cash_bar_to_safe  || 0,
+    safeToBar:  +P.cash_safe_to_bar  || 0,
+    miscPayout: +P.cash_misc_payout  || 0,
+    drawer:     +P.cash_drawer       || 0,
+    endSafe:    +P.cash_end_safe     || 0,
+    bleed:      +P.cash_bleed        || 0,
     bleedReason: P.cash_bleed_reason || "",
   });
   const [ep, setEp]             = useState({total: +P.ep_total || 0, noFP: +P.ep_no_fp || 0, fp: +P.ep_fp || 0});
@@ -127,12 +129,25 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     tcd:          +(P.total_cash_deposit_override) || 0, // unified mode override
   });
   const [compDesc, setCompDesc]   = useState(P.comps_description || "");
-  // Shortage type is venue-dependent: EP/Skill/Sales for Semnox venues,
-  // MD/Skill/Sales for non-Semnox (skill-only) venues.
-  const shortageTypes = posSemnox ? ["GC","EP","Skill","Sales"] : ["GC","MD","Skill","Sales"];
+  // Shortage type is venue-dependent. From the DSR templates:
+  //   Semnox + Union (BES 7):        EP + SKILL + Sales
+  //   Semnox + CRT (Marshall #8):    SKILL + Sales
+  //   Union + CRT (Marshall Conroe): GC + Sales
+  //   Skill only:                    SKILL + Sales
+  const shortageTypes = posSemnox && posUnion ? ["EP","SKILL","Sales"]
+                      : posSemnox              ? ["SKILL","Sales"]
+                      : posUnion               ? ["GC","Sales"]
+                      :                          ["SKILL","Sales"];
+  const defaultShortages = posSemnox && posUnion
+    ? [{type:"EP",    name:"", amt:0},{type:"SKILL", name:"", amt:0},{type:"Sales", name:"", amt:0}]
+    : posSemnox
+    ? [{type:"SKILL", name:"", amt:0},{type:"Sales", name:"", amt:0}]
+    : posUnion
+    ? [{type:"GC",    name:"", amt:0},{type:"Sales", name:"", amt:0}]
+    : [{type:"SKILL", name:"", amt:0},{type:"Sales", name:"", amt:0}];
   const [shortages, setShortages] = useState(Array.isArray(P.shortages) && P.shortages.length
     ? P.shortages
-    : [{type: posSemnox ? "EP" : "MD", name:"", amt:0},{type:"Skill", name:"", amt:0},{type:"Sales", name:"", amt:0}]);
+    : defaultShortages);
   const uShort = (i,f,v) => setShortages(p=>p.map((s,idx)=>idx===i?{...s,[f]:v}:s));
   const [poolDrop, setPoolDrop] = useState(+P.pool_drop || 0);
   const [notes, setNotes]       = useState(P.notes || "");
@@ -231,6 +246,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
       // Safe + cash
       cash_safe: cash.safe, cash_gc_to_safe: cash.gcToSafe, cash_safe_to_gc: cash.safeToGc,
+      cash_ep_to_safe: cash.epToSafe, cash_safe_to_ep: cash.safeToEp,
       cash_bar_to_safe: cash.barToSafe, cash_safe_to_bar: cash.safeToBar,
       cash_misc_payout: cash.miscPayout, cash_drawer: cash.drawer, cash_end_safe: cash.endSafe,
       cash_bleed: cash.bleed, cash_bleed_reason: cash.bleedReason,
@@ -413,12 +429,16 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
     heading("SAFE + CASH DETAIL");
     line("Actual Cash in Safe", fmt(cash.safe));
-    line("GC/SKILL to Safe", fmt(cash.gcToSafe));
-    line("Safe to GC/SKILL Dep", fmt(cash.safeToGc));
+    line(posSemnox ? "SKILL to Safe" : "GC to Safe", fmt(cash.gcToSafe));
+    line(posSemnox ? "Safe to SKILL" : "Safe to GC Dep", fmt(cash.safeToGc));
+    if (posSemnox && posUnion) {
+      line("EP to Safe", fmt(cash.epToSafe));
+      line("Safe to EP for Deposit", fmt(cash.safeToEp));
+    }
     line("Bar to Safe", fmt(cash.barToSafe));
     line("Safe to Bar Deposit", fmt(cash.safeToBar));
     line("Misc Payout from Safe", fmt(cash.miscPayout));
-    line("Starting Drawer", fmt(cash.drawer));
+    line(posSemnox ? "Starting Drawer (FP & POS Drawers)" : "Starting Drawer (MD & POS Drawers)", fmt(cash.drawer));
     line("End: Cash in Safe", fmt(cash.endSafe));
     line("End: Total Cash Count", fmt(c.endCash), true);
 
@@ -507,6 +527,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     add("GC CC Total", cc.tot); add("GC CC Fees", cc.fee); add("Net CC GC", c.ncc); add("Actual GC Deposit", c.agd);
     add("COAMs Total", ep.total); add("COAMs No FP", ep.noFP); add("COAMs FP", ep.fp); add("COAMs FP Total", c.epTotal); add("COAMs Variance", c.epVariance);
     add("Cash in Safe", cash.safe); add("GC/Skill to Safe", cash.gcToSafe); add("Safe to GC/Skill", cash.safeToGc);
+    add("EP to Safe", cash.epToSafe); add("Safe to EP", cash.safeToEp);
     add("Bar to Safe", cash.barToSafe); add("Safe to Bar", cash.safeToBar); add("Misc Payout", cash.miscPayout);
     add("Starting Drawer", cash.drawer); add("End Cash in Safe", cash.endSafe); add("Total Cash Count", c.endCash);
     add("Cardinal In", cardinal.in); add("Cardinal Out", cardinal.out); add("Cardinal Net", c.cxNet);
@@ -893,14 +914,19 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
           {/* Combined Skill Deposit */}
           <div style={{borderTop:"2px solid #000",marginTop:10,paddingTop:6}}>
+            <F label="Deposit Hint (Red Plum IN)" value={rp.in.toFixed(2)} disabled/>
+            <div style={{fontSize:10,color:"#6B5A4E",fontStyle:"italic",margin:"2px 0 4px"}}>Skill Deposit is the FULL Red Plum IN amount, not the net.</div>
             <F label="Skill Deposit" value={skillDeposit} onChange={setSkillDeposit} emphasize/>
+            {skillDeposit === 0 && rp.in > 0 && (
+              <button onClick={() => setSkillDeposit(rp.in)} style={{width:"100%",padding:5,marginTop:4,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:11,fontWeight:800,cursor:"pointer"}}>USE RED PLUM IN AS SKILL DEPOSIT</button>
+            )}
           </div>
         </Card>
       </div>
 
       {/* 3. Sweepstakes (GC / FP) */}
       <div className="card-sweeps">
-        <Card title="Sweepstakes (GC / FP)" icon="🎰" color="#D4A027" bg="#FBF2D8" badge={fmt(c.ng)}>
+        <Card title={posSemnox ? "Sweepstakes (FREE POINTS)" : "Sweepstakes (GC DETAILS)"} icon="🎰" color="#D4A027" bg="#FBF2D8" badge={fmt(c.ng)}>
           <div style={{display:"grid",gridTemplateColumns:"minmax(0,2fr) repeat(3,minmax(0,1fr))",gap:"2px 8px",alignItems:"center"}}>
             <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Vendor</div>
             <div style={{fontSize:11,color:"#3D2E1F",fontWeight:800,letterSpacing:.5,textTransform:"uppercase",textAlign:"right"}}>IN</div>
@@ -916,7 +942,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
           <div style={{borderTop:"2px solid #000",marginTop:6,paddingTop:4}}>
             <F label="Total Points In" value={c.ti.toFixed(2)} disabled highlight emphasize/>
             <F label="Total Prizes Out" value={c.to.toFixed(2)} disabled negative emphasize/>
-            <F label="Net GC / FP" value={c.ng.toFixed(2)} disabled highlight emphasize/>
+            <F label={posSemnox ? "Net (FP)" : "Net (GC)"} value={c.ng.toFixed(2)} disabled highlight emphasize/>
           </div>
         </Card>
       </div>
@@ -951,12 +977,16 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
         <Card title="Safe + Cash Detail" icon="🔒" color="#A8C5B8" bg="#EEF7F1" badge={fmt(c.endCash)}>
           <div className="sales-cols" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
             <F label="Actual Cash in Safe" value={cash.safe} onChange={v=>setCash(p=>({...p,safe:v}))}/>
-            <F label="GC/SKILL to Safe" value={cash.gcToSafe} onChange={v=>setCash(p=>({...p,gcToSafe:v}))}/>
-            <F label="Safe to GC/SKILL Dep" value={cash.safeToGc} onChange={v=>setCash(p=>({...p,safeToGc:v}))}/>
+            <F label={posSemnox ? "SKILL to Safe" : "GC to Safe"} value={cash.gcToSafe} onChange={v=>setCash(p=>({...p,gcToSafe:v}))}/>
+            <F label={posSemnox ? "Safe to SKILL" : "Safe to GC Dep"} value={cash.safeToGc} onChange={v=>setCash(p=>({...p,safeToGc:v}))}/>
+            {posSemnox && posUnion && <>
+              <F label="EP to Safe" value={cash.epToSafe} onChange={v=>setCash(p=>({...p,epToSafe:v}))}/>
+              <F label="Safe to EP for Deposit" value={cash.safeToEp} onChange={v=>setCash(p=>({...p,safeToEp:v}))}/>
+            </>}
             <F label="Bar to Safe" value={cash.barToSafe} onChange={v=>setCash(p=>({...p,barToSafe:v}))}/>
             <F label="Safe to Bar Deposit" value={cash.safeToBar} onChange={v=>setCash(p=>({...p,safeToBar:v}))}/>
             <F label="Misc Payout from Safe" value={cash.miscPayout} onChange={v=>setCash(p=>({...p,miscPayout:v}))}/>
-            <F label="Starting Drawer" value={cash.drawer} onChange={v=>setCash(p=>({...p,drawer:v}))}/>
+            <F label={posSemnox ? "Starting Drawer (FP & POS Drawers)" : "Starting Drawer (MD & POS Drawers)"} value={cash.drawer} onChange={v=>setCash(p=>({...p,drawer:v}))}/>
             <F label="End: Cash in Safe" value={cash.endSafe} onChange={v=>setCash(p=>({...p,endSafe:v}))}/>
           </div>
           <F label="End: Total Cash Count" value={c.endCash.toFixed(2)} disabled highlight emphasize/>
