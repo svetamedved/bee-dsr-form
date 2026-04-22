@@ -232,15 +232,6 @@ function UserManager() {
     } catch (e) { setErr(e.message); }
   };
 
-  const resetPassword = async (u) => {
-    const pw = prompt(`New temporary password for ${u.email}? (Minimum 8 characters)`);
-    if (!pw || pw.length < 8) return;
-    try {
-      await api(`/api/admin/users/${u.id}`, { method: 'PATCH', body: JSON.stringify({ reset_password: pw }) });
-      alert(`Password reset. Give ${u.email} the password: ${pw}`);
-    } catch (e) { setErr(e.message); }
-  };
-
   const deleteUser = async (u) => {
     if (!confirm(`Delete ${u.email}?\n\nThis permanently removes the account. If they have any submissions, deletion will be blocked and you should disable the account instead.`)) return;
     setErr(''); setMsg('');
@@ -326,7 +317,6 @@ function UserManager() {
                   <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}</td>
                   <td style={{...td,textAlign:'right',whiteSpace:'nowrap'}}>
                     <button style={linkBtn} onClick={() => setEditing({ ...u, location_id: u.location_id || '', newPassword: '' })}>Edit</button>
-                    <button style={linkBtn} onClick={() => resetPassword(u)}>Reset PW</button>
                     <button style={{...linkBtn,borderColor:'#A03030',color:'#A03030'}} onClick={() => deleteUser(u)}>Delete</button>
                   </td>
                 </tr>
