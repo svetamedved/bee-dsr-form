@@ -3,7 +3,22 @@ import { jsPDF } from "jspdf";
 import { api } from "./auth.js";
 
 const LOCS = ["BE Station Brady","BES 2 Rockport","BES 4 Kingsbury","BES 6 Buchanan Dam","BES 7 San Antonio","BES 8 Pflugerville","BES 10 - Crossroads Robstown","BES Giddings","Icehouse in SA","Lucky Cosmos Buda","MT 4 Corsicana","MT 5 Conroe","Music City","My Office Club","Skillzone 1 Porter","Skillzone 2 Mt Pleasant","Speakeasy Lakeway","Starlite Saloon","Whiskey Room"];
-const VEND = [{k:"mav",l:"Maverick",c:"#FF8A5B",bg:"#FFEDE2"},{k:"rim",l:"Rimfire",c:"#8FB89A",bg:"#EAF3EC"},{k:"river",l:"Riversweep",c:"#4A9BAE",bg:"#E3F0F4"},{k:"gd",l:"Golden Dragon",c:"#D4A027",bg:"#FBF2D8"}];
+const VEND_ALL = [{k:"mav",l:"Maverick",c:"#FF8A5B",bg:"#FFEDE2"},{k:"rim",l:"Rimfire",c:"#8FB89A",bg:"#EAF3EC"},{k:"river",l:"Riversweep",c:"#4A9BAE",bg:"#E3F0F4"},{k:"gd",l:"Golden Dragon",c:"#D4A027",bg:"#FBF2D8"}];
+// Per-venue form variants. Any venue not listed uses the default (all sweepstakes
+// vendors, Cardinal + Red Plum, skill deposit = Net RP).
+const VENUE_CONFIG = {
+  "Whiskey Room": {
+    vendors: ["mav","rim","river"],   // no Golden Dragon
+    showCardinal: false,               // no Cardinal Xpress cabinets
+    skillDepositSource: "redPlumIn",   // full Red Plum IN, not net
+  },
+};
+const getVenueConfig = (loc) => ({
+  vendors: ["mav","rim","river","gd"],
+  showCardinal: true,
+  skillDepositSource: "redPlumNet",
+  ...(VENUE_CONFIG[loc] || {}),
+});
 const fmt = n => { if (!n) return "$0.00"; const a = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); return n < 0 ? `-$${a}` : `$${a}`; };
 
 function F({ label, value, onChange, disabled, highlight, negative, emphasize }) {
@@ -37,6 +52,8 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   const readOnly = initialSubmission && initialSubmission.status === 'approved';
 
   const [loc, setLoc] = useState(lockedLocation || initialSubmission?.payload?.location || "");
+  const venueCfg = useMemo(() => getVenueConfig(loc), [loc]);
+  const VEND = useMemo(() => VEND_ALL.filter(v => venueCfg.vendors.includes(v.k)), [venueCfg]);
   const [dt, setDt]   = useState(defaultDate || initialSubmission?.payload?.report_date || new Date().toISOString().split("T")[0]);
   const [mgr, setMgr] = useState(initialSubmission?.payload?.manager || user?.name || "");
   const P = initialSubmission?.payload || {};
@@ -168,21 +185,33 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     const endCash = cash.safe + cash.drawer;
 
     // Semnox-side net sales + deposit hint.
-    // The Semnox "Sales Total" already includes sales tax, so the deposit formula is just:
-    //   deposit = Sales Total − Credit Cards + Tips  (tips are cash handed to staff that still go to the safe)
-    // Verified against BES 8 DSR 04.01.26:  $2664.74 − $1330.88 + $5.00 = $1338.86 ✓
-    const semNetSales = sSem.epCard + sSem.arcadeCredits + sSem.arcadeTime + sSem.gcCertSales
-                      - sSem.comps - sSem.disc;
-    const semDepositHint = semNetSales - sSem.cc + sSem.tips
-                          + sSem.gcCertRedemptions - sSem.gcCertConversions;
+    // Per BES 7 WITH NOTES template cell F32:
+    //   Easy Play Sales Total = EP TIME Total + Card + Credits + Time + GC Cert Sales + Taxes
+    // Discount is shown for reference but NOT included in the formula (note at A29).
+    // Comps also not in template's Sales Total. Deposit:
+    //   F37 = Sales Total − Total CC − GC Cert Redemptions − EP to Safe + Safe to EP
+    //         − EP Shortage − Bleed + Total Tips
+    const semNetSales = ep.total + sSem.epCard + sSem.arcadeCredits + sSem.arcadeTime
+                      + sSem.gcCertSales + sSem.taxes;
+    const epShortage = shortages.filter(s => s.type === 'EP').reduce((t, s) => t + (s.amt || 0), 0);
+    const semDepositHint = semNetSales - sSem.cc - sSem.gcCertRedemptions
+                          - cash.epToSafe + cash.safeToEp
+                          - epShortage - cash.bleed + sSem.tips;
 
     // Union-side net sales + deposit hint.
-    // Verified against BES 8 DSR 04.01.26:  $432.21 − $209.82 + $60 = $282.39 ✓
-    const unNetSales = sUn.bar + sUn.kitchen + sUn.gcActivations + sUn.retail
-                     - sUn.comps - sUn.disc - sUn.spills;
-    const unDepositHint = unNetSales + sUn.tips
-                        - sUn.cc - sUn.barCC - sUn.nonCashFees
-                        + sUn.rec + sUn.gcRedemptions - sUn.gcConversions - sUn.gcVoids;
+    // Per BES 7 WITH NOTES template cell F57:
+    //   Sales Total = Bar + Kitchen + (GC Activations − GC Voids − GC Conversions) + Retail + Taxes
+    // Comps / Discount / Spills are shown for reference but NOT subtracted.
+    // Template deposit F64:
+    //   Sales Deposit = Sales Total − Total CC − GC Redemptions + Recoveries
+    //                   − Bar to Safe + Safe to Bar − Sales Shortage + Total Tips
+    const unNetSales = sUn.bar + sUn.kitchen
+                     + (sUn.gcActivations - sUn.gcVoids - sUn.gcConversions)
+                     + sUn.retail + sUn.taxes;
+    const salesShortage = shortages.filter(s => s.type === 'Sales').reduce((t, s) => t + (s.amt || 0), 0);
+    const unDepositHint = unNetSales - sUn.cc - sUn.gcRedemptions + sUn.rec
+                        - cash.barToSafe + cash.safeToBar
+                        - salesShortage + sUn.tips;
 
     // Resolve the actual deposits to use. Venue-entered values win; fall back to the hint
     // so the totals bar has something reasonable before the user fills the deposit field.
