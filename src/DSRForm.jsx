@@ -189,7 +189,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   const venueCfg = useMemo(() => getVenueConfig(loc), [loc]);
   const VEND = useMemo(() => VEND_ALL.filter(v => venueCfg.vendors.includes(v.k)), [venueCfg]);
   const [dt, setDt]   = useState(defaultDate || initialSubmission?.payload?.report_date || new Date().toISOString().split("T")[0]);
-  const [mgr, setMgr] = useState(initialSubmission?.payload?.manager || user?.name || "");
+  const [mgr, setMgr] = useState(initialSubmission?.payload?.manager || "");
   const P = initialSubmission?.payload || {};
   const [posUnion, setPosUnion]   = useState(!!P.pos_union);
   const [posSemnox, setPosSemnox] = useState(!!P.pos_semnox);
@@ -501,6 +501,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
   const handleSubmit = async () => {
     if (!loc) { alert("Select a location"); return; }
+    if (!mgr.trim()) { alert("Enter the manager's name before submitting."); return; }
     if (readOnly) { alert("This submission is already approved and cannot be changed."); return; }
     setSubmitError("");
     // Pack the entire form state. Computed totals are included so the admin
@@ -615,6 +616,41 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     } catch (err) {
       setSubmitError(err.message || "Submit failed");
     }
+  };
+
+  // --- Reset form to defaults ---
+  // Blanks out every field so the user can start over. Only shown on a fresh
+  // draft (no existing submission) — once they've submitted, they'd see the
+  // saved version on reload anyway.
+  const resetForm = () => {
+    if (!window.confirm("Reset the form? This will clear everything you've entered.")) return;
+    setLoc(lockedLocation || "");
+    setDt(new Date().toISOString().split("T")[0]);
+    setMgr("");
+    setPosUnion(false);
+    setPosSemnox(false);
+    setGc({mav:{i:0,o:0},rim:{i:0,o:0},river:{i:0,o:0},gd:{i:0,o:0}});
+    setCc({tot:0,fee:0});
+    setComps({retail:0,kitchen:0,entered:0});
+    setCash({safe:0,gcToSafe:0,safeToGc:0,epToSafe:0,safeToEp:0,barToSafe:0,safeToBar:0,miscPayout:0,drawer:0,endSafe:0,bleed:0,bleedReason:""});
+    setEp({total:0,noFP:0,fp:0});
+    setCardinal({in:0,out:0});
+    setCardCabs([{name:"Cabinet 1",serial:"",in:0,out:0},{name:"Cabinet 2",serial:"",in:0,out:0},{name:"Cabinet 3",serial:"",in:0,out:0}]);
+    setRp({in:0,out:0});
+    setRpCabs([{name:"Cabinet 1",tid:"",serial:"",in:0,out:0},{name:"Cabinet 2",tid:"",serial:"",in:0,out:0}]);
+    setSkillDeposit(0);
+    setSkillDepositTouched(false);
+    setSSem({epCard:0,arcadeCredits:0,arcadeTime:0,gcCertSales:0,comps:0,disc:0,taxes:0,tips:0,ccFees:0,cc:0,gcCertRedemptions:0,gcCertConversions:0});
+    setSUn({bar:0,kitchen:0,gcActivations:0,retail:0,comps:0,disc:0,spills:0,taxes:0,tips:0,cc:0,barCC:0,nonCashFees:0,gcRedemptions:0,gcVoids:0,gcConversions:0,rec:0});
+    setSDep({epDeposit:0,salesDeposit:0,tcd:0});
+    setCompDesc("");
+    setShortages([{type:"SKILL",name:"",amt:0},{type:"Sales",name:"",amt:0}]);
+    setPoolDrop(0);
+    setNotes("");
+    setOk(false);
+    setSubmitError("");
+    setPhotos([]);
+    setPhotoError("");
   };
 
   // --- Share / Export ---
@@ -1021,6 +1057,9 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       </div>
       <div className="dsr-header-actions">
         <div className="dsr-header-total"><div style={{fontSize:8,color:"#6B5A4E",letterSpacing:2,fontWeight:800}}>TOTAL</div><div style={{fontSize:16,fontWeight:900,color:"#000",fontFamily:"'JetBrains Mono',monospace"}}>{fmt(c.td)}</div></div>
+        {!initialSubmission && !isAdminReviewing && !ok && (
+          <button onClick={resetForm} title="Clear the form and start over" style={{padding:"9px 14px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer",background:"#FFF",color:"#000",boxShadow:"3px 3px 0 #000"}}>RESET</button>
+        )}
         <button onClick={handleSubmit} disabled={readOnly} style={{padding:"9px 18px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:readOnly?"not-allowed":"pointer",background:readOnly?"#888":(ok?"#B8D4A8":"#000"),color:readOnly?"#FFF":(ok?"#000":"#FAD6A5"),boxShadow:"3px 3px 0 #000",opacity:readOnly?0.6:1}}>{readOnly?"APPROVED":(ok?"SUBMITTED":"SUBMIT")}</button>
         <div ref={exportRef} style={{position:"relative"}}>
           <button onClick={()=>setShowExport(p=>!p)} style={{padding:"9px 14px",borderRadius:7,border:"2px solid #000",fontSize:11,fontWeight:900,letterSpacing:1,cursor:"pointer",background:"#FAD6A5",color:"#000",boxShadow:"3px 3px 0 #000"}}>EXPORT ▾</button>
