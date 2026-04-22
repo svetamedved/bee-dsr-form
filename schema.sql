@@ -77,6 +77,39 @@ CREATE TABLE IF NOT EXISTS submissions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- -------------------------------------------------
+-- SUBMISSION_IMAGES: photos of terminal/POS reports uploaded alongside
+-- a DSR. Bytes stored directly in TiDB (LONGBLOB). Each image can be
+-- linked to a submission once it exists; until then images are tied to
+-- the uploader via user_id so drafts can accumulate photos before the
+-- submission row is created.
+--
+-- OCR results land in parsed_json (the structured field extraction used
+-- to auto-fill the form) and ocr_raw (full model output for debugging).
+-- status tracks the async pipeline: pending -> processing -> parsed|failed.
+-- -------------------------------------------------
+CREATE TABLE IF NOT EXISTS submission_images (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  submission_id INT NULL,
+  user_id INT NOT NULL,
+  location_id INT NULL,
+  report_date DATE NULL,
+  report_type VARCHAR(50) NOT NULL,
+  filename VARCHAR(255) NULL,
+  mime_type VARCHAR(100) NOT NULL DEFAULT 'image/jpeg',
+  byte_size INT NOT NULL DEFAULT 0,
+  image_bytes LONGBLOB NOT NULL,
+  ocr_status ENUM('pending','processing','parsed','failed') NOT NULL DEFAULT 'pending',
+  ocr_raw LONGTEXT NULL,
+  parsed_json LONGTEXT NULL,
+  ocr_error TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_si_submission (submission_id),
+  INDEX idx_si_user (user_id),
+  INDEX idx_si_status (ocr_status),
+  INDEX idx_si_loc_date (location_id, report_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- -------------------------------------------------
 -- daily_sales_summary: holds the non-game-revenue DSR fields
 -- (bar/kitchen/retail sales, taxes, tips, deposits, etc.). Populated
 -- when a submission is approved.

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { jsPDF } from "jspdf";
-import { api } from "./auth.js";
+import { api, apiFormData, getToken } from "./auth.js";
 
 const LOCS = ["BE Station Brady","BES 2 Rockport","BES 4 Kingsbury","BES 6 Buchanan Dam","BES 7 San Antonio","BES 8 Pflugerville","BES 10 - Crossroads Robstown","BES Giddings","Icehouse in SA","Lucky Cosmos Buda","MT 4 Corsicana","MT 5 Conroe","Music City","My Office Club","Skillzone 1 Porter","Skillzone 2 Mt Pleasant","Speakeasy Lakeway","Starlite Saloon","Whiskey Room"];
 const VEND_ALL = [{k:"mav",l:"Maverick",c:"#FF8A5B",bg:"#FFEDE2"},{k:"rim",l:"Rimfire",c:"#8FB89A",bg:"#EAF3EC"},{k:"river",l:"Riversweep",c:"#4A9BAE",bg:"#E3F0F4"},{k:"gd",l:"Golden Dragon",c:"#D4A027",bg:"#FBF2D8"}];
@@ -21,6 +21,109 @@ const getVenueConfig = (loc) => ({
 });
 const fmt = n => { if (!n) return "$0.00"; const a = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); return n < 0 ? `-$${a}` : `$${a}`; };
 
+// Terminal-report photo types the GM can upload. Each one maps specific OCR
+// fields to DSR form fields. Kept in sync with REPORT_TYPES in server.js.
+const REPORT_TYPES = {
+  ep_time:         { label: "EP TIME / Free Points Summary", icon: "🎯", needsVendor: false },
+  semnox_terminal: { label: "Semnox Terminal Drawer Report", icon: "🎰", needsVendor: true  },
+  union_pos:       { label: "Union POS Shift Report",        icon: "🧾", needsVendor: false },
+  riversweeps:     { label: "Riversweeps Close Shift",       icon: "🌊", needsVendor: false },
+  red_plum:        { label: "Red Plum Vending Cabinets",     icon: "🪙", needsVendor: false },
+};
+const REPORT_ORDER = ["ep_time","union_pos","red_plum","semnox_terminal","riversweeps"];
+
+// Given a parsed OCR JSON and report type, call the appropriate setters to
+// auto-fill form fields. Returns an array of human-readable "filled X"
+// messages for display. Only writes fields that came back non-null.
+function applyOcrToForm(reportType, parsed, vendorKey, setters) {
+  if (!parsed || typeof parsed !== 'object') return [];
+  const msgs = [];
+  const n = v => (v == null || v === '' || Number.isNaN(+v)) ? null : +v;
+  const abs = v => { const x = n(v); return x == null ? null : Math.abs(x); };
+
+  if (reportType === 'ep_time') {
+    const vmap = [
+      ['mav','maverick_in','maverick_out','Maverick'],
+      ['rim','rimfire_in','rimfire_out','Rimfire'],
+      ['river','river_in','river_out','River'],
+      ['gd','golden_dragon_in','golden_dragon_out','Golden Dragon'],
+    ];
+    vmap.forEach(([k, ink, outk, label]) => {
+      const inv = n(parsed[ink]), outv = n(parsed[outk]);
+      if (inv != null)  { setters.ug(k, 'i', inv);  msgs.push(`${label} In = ${fmt(inv)}`); }
+      if (outv != null) { setters.ug(k, 'o', outv); msgs.push(`${label} Out = ${fmt(outv)}`); }
+    });
+    const epTot = n(parsed.ep_time_fp_total) ?? n(parsed.net_fp_total);
+    if (epTot != null) { setters.setEp(p => ({...p, total: epTot})); msgs.push(`COAMs Total = ${fmt(epTot)}`); }
+  }
+
+  else if (reportType === 'semnox_terminal') {
+    // Per-vendor drawer report. Requires vendorKey (mav/rim/river/gd).
+    if (!vendorKey) return ['⚠ Select which vendor this terminal is for.'];
+    const label = { mav:'Maverick', rim:'Rimfire', river:'River', gd:'Golden Dragon' }[vendorKey] || vendorKey;
+    const cin = abs(parsed.cash_in);
+    const cout = abs(parsed.cash_out);
+    if (cin != null)  { setters.ug(vendorKey, 'i', cin);  msgs.push(`${label} Points In = ${fmt(cin)}`); }
+    if (cout != null) { setters.ug(vendorKey, 'o', cout); msgs.push(`${label} Prizes Out = ${fmt(cout)}`); }
+  }
+
+  else if (reportType === 'union_pos') {
+    // Union-side sales. Use Net Shift "Cash" column for the cash total implicit,
+    // but actual form cares about Bar/Kitchen/Retail (if categorized), plus
+    // credit-card totals, game-card redemptions, discounts, taxes, tips.
+    const setField = (field, val, human) => {
+      if (val == null) return;
+      setters.setSUn(p => ({...p, [field]: val}));
+      msgs.push(`${human} = ${fmt(val)}`);
+    };
+    setField('bar',           n(parsed.bar_sales),     'Bar Sales');
+    setField('kitchen',       n(parsed.kitchen_sales), 'Kitchen Sales');
+    setField('retail',        n(parsed.retail_sales),  'Retail Sales');
+    setField('cc',            n(parsed.credit_card),   'Total Credit Cards');
+    setField('gcRedemptions', n(parsed.game_card),     'GC Redemptions');
+    setField('tips',          n(parsed.tips),          'Total Tips');
+    // Taxes: prefer Net Sale tax if present (sum of taxable + non-taxable), else taxable only
+    const taxes = n(parsed.net_sale_tax) ??
+      ((n(parsed.taxable_sale_tax) || 0) + (n(parsed.non_taxable_sale_tax) || 0) || null);
+    setField('taxes', taxes, 'Total Taxes');
+    // Discounts are usually negative in the report; form expects positive
+    const discTax = abs(parsed.discount_taxable);
+    const discNon = abs(parsed.discount_non_taxable);
+    if (discTax != null || discNon != null) {
+      const total = (discTax || 0) + (discNon || 0);
+      setField('disc', total, 'Discounts');
+    }
+  }
+
+  else if (reportType === 'riversweeps') {
+    // Riversweeps = the River vendor. Bill In → river points in, Bill Out → river prizes out.
+    const bin = abs(parsed.bill_in), bout = abs(parsed.bill_out);
+    if (bin  != null) { setters.ug('river', 'i', bin);  msgs.push(`River Points In = ${fmt(bin)}`); }
+    if (bout != null) { setters.ug('river', 'o', bout); msgs.push(`River Prizes Out = ${fmt(bout)}`); }
+  }
+
+  else if (reportType === 'red_plum') {
+    if (Array.isArray(parsed.cabinets) && parsed.cabinets.length) {
+      const cabs = parsed.cabinets.map((c, i) => ({
+        name:   c.name   || `Cabinet ${i+1}`,
+        tid:    c.tid    || '',
+        serial: c.serial || '',
+        in:  n(c.in)  ?? 0,
+        out: n(c.out) ?? 0,
+      }));
+      setters.setRpCabs(cabs);
+      const totIn  = cabs.reduce((t,c)=>t+c.in,0);
+      const totOut = cabs.reduce((t,c)=>t+c.out,0);
+      setters.setRp({in: totIn, out: totOut});
+      msgs.push(`${cabs.length} Red Plum cabinets (In ${fmt(totIn)}, Out ${fmt(totOut)})`);
+    } else if (n(parsed.net_rp) != null) {
+      msgs.push(`Net RP = ${fmt(n(parsed.net_rp))}`);
+    }
+  }
+
+  return msgs.length ? msgs : ['No matching fields detected.'];
+}
+
 function F({ label, value, onChange, disabled, highlight, negative, emphasize }) {
   return <div style={{display:"flex",alignItems:"center",padding:emphasize?"6px 0":"3px 0",borderBottom:"1px solid #F5EBE0",gap:6,minWidth:0}}>
     <span style={{flex:1,fontSize:emphasize?13:12,color:emphasize?"#000":"#3D2E1F",lineHeight:1.3,fontWeight:emphasize?700:500,minWidth:0}}>{label}</span>
@@ -33,6 +136,23 @@ function Text({ label, value, onChange, placeholder }) {
     <label style={{fontSize:11,color:"#3D2E1F",display:"block",marginBottom:2,textTransform:"uppercase",letterSpacing:.5,fontWeight:600}}>{label}</label>
     <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"6px 8px",border:"2px solid #B8A99E",borderRadius:5,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
   </div>;
+}
+
+// Fetches an image endpoint with the bearer token and renders it via object URL.
+// Used for terminal-photo thumbnails — browser <img src> can't send Authorization
+// headers, so we fetch the blob ourselves.
+function AuthImg({ src, alt, style, onClick }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    let objUrl = null;
+    fetch(src, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(b => { if (cancelled) return; objUrl = URL.createObjectURL(b); setUrl(objUrl); })
+      .catch(() => {});
+    return () => { cancelled = true; if (objUrl) URL.revokeObjectURL(objUrl); };
+  }, [src]);
+  return <img src={url || ""} alt={alt} style={style} onClick={onClick} />;
 }
 
 function Card({ title, icon, color, bg, badge, children }) {
@@ -178,6 +298,92 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   const [notes, setNotes]       = useState(P.notes || "");
   const [ok, setOk]             = useState(false);
   const [submitError, setSubmitError] = useState("");
+
+  // --- Terminal-report photo upload + OCR auto-fill ----------------------
+  // Each uploaded image gets an entry: { id, report_type, ocr_status, parsed,
+  // error, label, vendorKey, fillMsgs }.
+  const [photos, setPhotos]                 = useState([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError]         = useState("");
+  const [pendingType, setPendingType]       = useState("ep_time");
+  const [pendingVendor, setPendingVendor]   = useState("mav");
+  const fileInputRef = useRef(null);
+
+  // If editing an existing submission, load its already-uploaded images.
+  useEffect(() => {
+    if (!initialSubmission?.id) return;
+    api(`/api/images?submission_id=${initialSubmission.id}`)
+      .then(rows => setPhotos(rows.map(r => ({
+        id: r.id,
+        report_type: r.report_type,
+        ocr_status: r.ocr_status,
+        parsed: r.parsed_json,
+        error: r.ocr_error,
+        label: REPORT_TYPES[r.report_type]?.label || r.report_type,
+        vendorKey: null,
+        fillMsgs: [],
+        filename: r.filename,
+      }))))
+      .catch(() => {});
+  }, [initialSubmission?.id]);
+
+  const handlePhotoUpload = useCallback(async (file) => {
+    if (!file) return;
+    setPhotoError("");
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please upload an image (jpg, png, heic).'); return;
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      setPhotoError('Image is over 12MB — please retake or compress.'); return;
+    }
+    const reportType = pendingType;
+    const vendorKey  = REPORT_TYPES[reportType].needsVendor ? pendingVendor : null;
+    setPhotoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('report_type', reportType);
+      if (dt) fd.append('report_date', dt);
+      if (initialSubmission?.id) fd.append('submission_id', String(initialSubmission.id));
+      const resp = await apiFormData('/api/images', fd);
+      // Auto-fill the form from parsed JSON
+      const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash };
+      const fillMsgs = resp.ocr_status === 'parsed'
+        ? applyOcrToForm(reportType, resp.parsed, vendorKey, setters)
+        : [];
+      setPhotos(p => [{
+        id: resp.id,
+        report_type: reportType,
+        ocr_status: resp.ocr_status,
+        parsed: resp.parsed || null,
+        error: resp.error || null,
+        label: resp.label || REPORT_TYPES[reportType].label,
+        vendorKey,
+        fillMsgs,
+        filename: file.name,
+      }, ...p]);
+    } catch (e) {
+      setPhotoError(e.message || 'Upload failed');
+    } finally {
+      setPhotoUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, [pendingType, pendingVendor, dt, initialSubmission?.id, ug]);
+
+  const handlePhotoReapply = useCallback((ph) => {
+    if (!ph.parsed) return;
+    const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash };
+    const msgs = applyOcrToForm(ph.report_type, ph.parsed, ph.vendorKey, setters);
+    setPhotos(p => p.map(x => x.id === ph.id ? { ...x, fillMsgs: msgs } : x));
+  }, [ug]);
+
+  const handlePhotoDelete = useCallback(async (id) => {
+    if (!confirm('Remove this photo and its OCR data?')) return;
+    try {
+      await api(`/api/images/${id}`, { method: 'DELETE' });
+      setPhotos(p => p.filter(x => x.id !== id));
+    } catch (e) { setPhotoError(e.message); }
+  }, []);
 
   const c = useMemo(() => {
     const vn = {};
@@ -346,6 +552,9 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       // Shortages & notes
       shortages,
       notes,
+
+      // Terminal photos attached to this submission (linked server-side)
+      image_ids: photos.map(p => p.id),
 
       // Grand total
       total_deposit: c.td,
@@ -817,6 +1026,105 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     )}
 
     <div className="cards-grid">
+      {/* 0. Terminal Report Photos — OCR auto-fill */}
+      <Card title="Terminal Report Photos (auto-fill)" icon="📸" color="#6B8FA0" bg="#E3EDF2"
+            badge={photos.length ? `${photos.length} uploaded` : null}>
+        <div style={{padding:"4px 0 2px",fontSize:12,color:"#3D2E1F",lineHeight:1.4}}>
+          Snap the terminal receipts here and the matching fields below will fill in automatically. Double-check the numbers after — OCR can miss a digit on faded prints.
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end",marginTop:8}}>
+          <div>
+            <label style={{fontSize:10,color:"#3D2E1F",display:"block",marginBottom:2,textTransform:"uppercase",letterSpacing:.5,fontWeight:700}}>Report type</label>
+            <select value={pendingType} onChange={e=>setPendingType(e.target.value)}
+                    style={{width:"100%",padding:"7px 9px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,background:"#FFF",color:"#000",fontWeight:600}}>
+              {REPORT_ORDER.map(k => <option key={k} value={k}>{REPORT_TYPES[k].icon} {REPORT_TYPES[k].label}</option>)}
+            </select>
+          </div>
+          <div style={{visibility: REPORT_TYPES[pendingType].needsVendor ? "visible" : "hidden"}}>
+            <label style={{fontSize:10,color:"#3D2E1F",display:"block",marginBottom:2,textTransform:"uppercase",letterSpacing:.5,fontWeight:700}}>For vendor</label>
+            <select value={pendingVendor} onChange={e=>setPendingVendor(e.target.value)}
+                    style={{width:"100%",padding:"7px 9px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,background:"#FFF",color:"#000",fontWeight:600}}>
+              {VEND.map(v => <option key={v.k} value={v.k}>{v.l}</option>)}
+            </select>
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={()=>fileInputRef.current?.click()}
+              disabled={photoUploading || readOnly}
+              style={{padding:"9px 16px",border:"2px solid #000",borderRadius:7,fontSize:12,fontWeight:900,letterSpacing:.5,cursor:photoUploading?"wait":"pointer",background:photoUploading?"#888":"#6B8FA0",color:"#FFF",boxShadow:"2px 2px 0 #000",whiteSpace:"nowrap"}}>
+              {photoUploading ? "UPLOADING…" : "📷 UPLOAD PHOTO"}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={e => handlePhotoUpload(e.target.files?.[0])}
+              style={{display:"none"}}
+            />
+          </div>
+        </div>
+        {photoError && (
+          <div style={{marginTop:8,padding:"8px 10px",borderRadius:6,background:"#FFE8E8",border:"1.5px solid #A03030",fontSize:12,color:"#6B1818",fontWeight:700}}>
+            {photoError}
+          </div>
+        )}
+        {photos.length > 0 && (
+          <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
+            {photos.map(ph => (
+              <div key={ph.id} style={{display:"flex",gap:10,padding:8,border:"1.5px solid #D8C9BC",borderRadius:8,background:"#FFFDF9"}}>
+                <AuthImg
+                  src={`/api/images/${ph.id}/raw`}
+                  alt={ph.filename || ph.label}
+                  style={{width:72,height:72,objectFit:"cover",borderRadius:6,border:"1px solid #C5B5A8",flexShrink:0,background:"#F5EBE0",cursor:"pointer"}}
+                  onClick={() => {
+                    fetch(`/api/images/${ph.id}/raw`, { headers: { Authorization: `Bearer ${getToken()}` } })
+                      .then(r => r.blob()).then(b => window.open(URL.createObjectURL(b), '_blank'));
+                  }}
+                />
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                    <span style={{fontSize:12,fontWeight:800,color:"#000"}}>{REPORT_TYPES[ph.report_type]?.icon} {ph.label}</span>
+                    {ph.vendorKey && <span style={{fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"#F0E6F1",color:"#6B4A6E"}}>{VEND.find(v=>v.k===ph.vendorKey)?.l || ph.vendorKey}</span>}
+                    {ph.ocr_status === 'parsed' && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#E6F5DC",color:"#234A12"}}>✓ PARSED</span>}
+                    {ph.ocr_status === 'failed' && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#FFE8E8",color:"#6B1818"}}>OCR FAILED</span>}
+                    {ph.ocr_status === 'processing' && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#FFF4D6",color:"#6B4A0A"}}>PROCESSING…</span>}
+                  </div>
+                  {ph.fillMsgs && ph.fillMsgs.length > 0 && (
+                    <div style={{marginTop:4,fontSize:11,color:"#3D2E1F",lineHeight:1.4}}>
+                      Filled: {ph.fillMsgs.join(" · ")}
+                    </div>
+                  )}
+                  {ph.ocr_status === 'failed' && ph.error && (
+                    <div style={{marginTop:4,fontSize:11,color:"#6B1818",fontWeight:600}}>
+                      Error: {ph.error}
+                    </div>
+                  )}
+                  {ph.parsed && ph.fillMsgs?.length === 0 && ph.ocr_status === 'parsed' && (
+                    <div style={{marginTop:4,fontSize:11,color:"#6B5A4E"}}>
+                      Parsed but no matching fields — click Apply below.
+                    </div>
+                  )}
+                  <div style={{display:"flex",gap:6,marginTop:6}}>
+                    {ph.ocr_status === 'parsed' && (
+                      <button type="button" onClick={()=>handlePhotoReapply(ph)}
+                              style={{padding:"3px 8px",border:"1.5px solid #6B8FA0",borderRadius:5,background:"#FFF",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer"}}>
+                        Apply
+                      </button>
+                    )}
+                    <button type="button" onClick={()=>handlePhotoDelete(ph.id)} disabled={readOnly}
+                            style={{padding:"3px 8px",border:"1.5px solid #A03030",borderRadius:5,background:"#FFF",color:"#A03030",fontSize:10,fontWeight:800,cursor:readOnly?"not-allowed":"pointer"}}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       {/* 1a. Semnox Sales Detail — shown when the venue uses Semnox */}
       {posSemnox && <div className="card-sales-sem">
         <Card title={posUnion ? "Sales Detail — Semnox (Easy Play)" : "Sales Detail (Semnox)"} icon="🕹️" color="#9B6B9E" bg="#F0E6F1" badge={fmt(c.epDeposit)}>

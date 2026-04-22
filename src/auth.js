@@ -26,6 +26,27 @@ export async function api(path, opts = {}) {
   return data;
 }
 
+// Upload multipart form data (e.g. image files) with the auth token.
+// Do NOT set Content-Type manually — the browser adds the multipart boundary.
+export async function apiFormData(path, formData) {
+  const headers = {};
+  const tok = getToken();
+  if (tok) headers['Authorization'] = `Bearer ${tok}`;
+  const res = await fetch(path, { method: 'POST', headers, body: formData });
+  if (res.status === 401) {
+    clearToken();
+    window.dispatchEvent(new Event('dsr-logout'));
+  }
+  const ct = res.headers.get('content-type') || '';
+  const data = ct.includes('application/json') ? await res.json().catch(() => ({})) : await res.text();
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `HTTP ${res.status}`);
+    err.status = res.status; err.data = data;
+    throw err;
+  }
+  return data;
+}
+
 export async function apiBlob(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const tok = getToken();

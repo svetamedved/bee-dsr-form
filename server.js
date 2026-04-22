@@ -13,6 +13,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import multer from 'multer';
+import Anthropic from '@anthropic-ai/sdk';
 
 dotenv.config();
 
@@ -483,6 +485,11 @@ app.post('/api/submissions', authRequired, async (req, res) => {
     const loc = await getLocationName(locationId);
     const fullPayload = { ...payload, location: loc, location_id: locationId };
 
+    // Optionally attach uploaded images to this submission.
+    const imageIds = Array.isArray(payload.image_ids)
+      ? payload.image_ids.filter(n => Number.isInteger(+n)).map(n => +n)
+      : [];
+
     if (existing.length) {
       const sub = existing[0];
       if (sub.status === 'approved') return res.status(409).json({ error: 'Already approved; contact admin' });
@@ -492,6 +499,12 @@ app.post('/api/submissions', authRequired, async (req, res) => {
          WHERE id=?`,
         [req.user.id, JSON.stringify(fullPayload), sub.id]
       );
+      if (imageIds.length) {
+        await pool.query(
+          'UPDATE submission_images SET submission_id=? WHERE id IN (?) AND user_id=?',
+          [sub.id, imageIds, req.user.id]
+        );
+      }
       return res.json({ id: sub.id, status: 'pending', resubmitted: true });
     }
     const [r] = await pool.execute(
@@ -499,6 +512,12 @@ app.post('/api/submissions', authRequired, async (req, res) => {
        VALUES (?, ?, ?, 'pending', ?)`,
       [locationId, req.user.id, payload.report_date, JSON.stringify(fullPayload)]
     );
+    if (imageIds.length) {
+      await pool.query(
+        'UPDATE submission_images SET submission_id=? WHERE id IN (?) AND user_id=?',
+        [r.insertId, imageIds, req.user.id]
+      );
+    }
     res.json({ id: r.insertId, status: 'pending' });
   } catch (e) {
     console.error('submit error', e);
@@ -657,6 +676,327 @@ app.get('/api/admin/export/batch.iif', authRequired, adminRequired, async (req, 
 // =====================================================================
 // Legacy summary endpoint (approved revenue rows)
 // =====================================================================
+// =====================================================================
+// Terminal-report photo upload + Claude Vision OCR
+//
+// Venues photograph the paper receipts from the terminals (Semnox drawer
+// report, Union POS shift report, Riversweeps, Red Plum vending detail,
+// EP TIME summary) and upload them. Each upload is passed to Claude
+// Vision with a structured-extraction prompt; the parsed JSON is returned
+// to the client, which auto-fills the matching DSR fields.
+//
+// Bytes are stored in submission_images.image_bytes (LONGBLOB) so the
+// photos remain available for audit. OCR raw text + parsed_json are
+// stored alongside so we never have to re-run OCR for the same image.
+// =====================================================================
+const REPORT_TYPES = {
+  semnox_terminal: {
+    label: 'Semnox Terminal Drawer Report',
+    prompt: `This is a Semnox / EP TIME terminal "Drawer Report" (or "Terminal Report"). Extract the totals from the "Money totals" section and any cash count.
+Fields to extract (all dollar amounts as numbers, null if missing or blank):
+- opening: Opening
+- fills: Fills
+- bleeds: Bleeds
+- cash_in: Cash In
+- cash_out: Cash Out
+- current_cash: Current Cash
+- free_credits_awarded: Free credits awarded
+- sweepstakes_entries: Free sweepstakes entries
+- comp_credits: Comp credits
+- promotional_points: Promotional points
+- donation_points: Total Donation Points issued
+- ep_time_total: the overall EP TIME total if shown
+Respond with JSON only.`,
+  },
+  union_pos: {
+    label: 'Union POS Shift Report',
+    prompt: `This is a Union POS "Shift Report - Close Shift". Extract the payment totals and taxable/non-taxable sales.
+Fields (numbers, null if absent):
+- cash: Cash total (prefer "Net Shift" column if present, else "System")
+- credit_card: Credit Card total
+- debit: Debit total (if separate)
+- game_card: Game Card total
+- cheques: Cheques
+- coupons: Coupons
+- taxable_sale_amount: Taxable Sale amount
+- taxable_sale_tax: Taxable Sale tax
+- non_taxable_sale_amount: Non-Taxable Sale amount
+- non_taxable_sale_tax: Non-Taxable Sale tax
+- discount_taxable: Disc. On Taxable (amount, negative sign as shown)
+- discount_non_taxable: Disc. On Non-Taxable
+- net_sale_amount: Net Sale amount
+- net_sale_tax: Net Sale tax
+- tips: Tips (if present in the report)
+- bar_sales: Bar Sales (if separately categorized)
+- kitchen_sales: Kitchen Sales (if separately categorized)
+- retail_sales: Retail Sales (if separately categorized)
+Respond with JSON only.`,
+  },
+  riversweeps: {
+    label: 'Riversweeps Close Shift',
+    prompt: `This is a Riversweeps terminal "CLOSE SHIFT" report. Extract the shift totals.
+Fields (numbers, null if absent):
+- shift_open_register: Shift open register
+- cash_added: Cash added
+- cash_bleed: Cash bleed
+- bill_in: Bill In
+- bill_in_count: Bill In count
+- bill_out: Bill Out
+- bill_out_count: Bill Out count
+- shift_close_register: Shift close register
+- shift_profit: Shift profit
+- shift_shortage: Shift shortage
+- bounceback: Bounceback
+- bounceback_count: Bounceback count
+- promo: Promo
+- promo_count: Promo count
+- free_play_issued: Free Play issued
+Respond with JSON only.`,
+  },
+  red_plum: {
+    label: 'Red Plum Skill Vending Detail',
+    prompt: `This is a Red Plum Skill Vending Cabinets Detail page. Extract the "In" and "Out" dollar totals per cabinet, and the overall "Net RP" if shown.
+Return JSON with:
+- cabinets: array of { name, tid, serial, in, out, net } - one object per cabinet row
+- net_rp: overall Net RP total
+Respond with JSON only.`,
+  },
+  ep_time: {
+    label: 'EP TIME (Semnox FP) Summary',
+    prompt: `This is an EP TIME / Free Points summary. Extract vendor-level points-in / prizes-out / net.
+Fields (numbers, null if absent):
+- maverick_in: Maverick Points In
+- maverick_out: Maverick Prizes Out
+- maverick_net: Net FP - Maverick
+- rimfire_in: Rimfire Points In
+- rimfire_out: Rimfire Prizes Out
+- rimfire_net: Net FP - Rimfire
+- river_in: River Points In
+- river_out: River Prizes Out
+- river_net: Net FP - River
+- golden_dragon_in: Golden Dragon Points In
+- golden_dragon_out: Golden Dragon Prizes Out
+- golden_dragon_net: Net FP - Golden Dragon
+- net_fp_total: Net (FP) overall
+- ep_time_fp_total: EP TIME (FP) Total
+Respond with JSON only.`,
+  },
+};
+
+const anthropicClient = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 }, // 12 MB max phone photo
+});
+
+async function runClaudeVisionOCR(imageBytes, mimeType, reportType) {
+  if (!anthropicClient) throw new Error('ANTHROPIC_API_KEY not configured');
+  const spec = REPORT_TYPES[reportType];
+  if (!spec) throw new Error('Unknown report_type');
+  const base64 = imageBytes.toString('base64');
+  const msg = await anthropicClient.messages.create({
+    model: process.env.ANTHROPIC_OCR_MODEL || 'claude-sonnet-4-6',
+    max_tokens: 1500,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+        { type: 'text', text: `${spec.prompt}\n\nReturn ONLY a JSON object, no prose, no markdown fences.` },
+      ],
+    }],
+  });
+  const raw = (msg.content || []).map(b => b.type === 'text' ? b.text : '').join('').trim();
+  // strip ```json fences if the model adds them anyway
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    // fall back: find first {...} block
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('model did not return JSON');
+    parsed = JSON.parse(m[0]);
+  }
+  return { raw, parsed };
+}
+
+// Upload one photo. Runs OCR inline, returns parsed JSON + image id.
+app.post('/api/images', authRequired, imageUpload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'image file required' });
+    const { report_type, report_date, submission_id } = req.body || {};
+    if (!report_type || !REPORT_TYPES[report_type]) {
+      return res.status(400).json({ error: 'valid report_type required' });
+    }
+
+    // Determine location: venues are pinned to their own, admins can pass one.
+    let locationId = req.body.location_id ? parseInt(req.body.location_id) : null;
+    if (req.user.role === 'venue') locationId = req.user.location_id || null;
+
+    const [ins] = await pool.execute(
+      `INSERT INTO submission_images
+         (submission_id, user_id, location_id, report_date, report_type,
+          filename, mime_type, byte_size, image_bytes, ocr_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
+      [
+        submission_id ? parseInt(submission_id) : null,
+        req.user.id,
+        locationId,
+        report_date || null,
+        report_type,
+        req.file.originalname || null,
+        req.file.mimetype,
+        req.file.size,
+        req.file.buffer,
+      ]
+    );
+    const imageId = ins.insertId;
+
+    // Inline OCR
+    try {
+      const { raw, parsed } = await runClaudeVisionOCR(
+        req.file.buffer, req.file.mimetype, report_type
+      );
+      await pool.execute(
+        `UPDATE submission_images
+           SET ocr_status='parsed', ocr_raw=?, parsed_json=?, ocr_error=NULL
+         WHERE id=?`,
+        [raw, JSON.stringify(parsed), imageId]
+      );
+      return res.json({
+        id: imageId,
+        report_type,
+        ocr_status: 'parsed',
+        parsed,
+        label: REPORT_TYPES[report_type].label,
+      });
+    } catch (ocrErr) {
+      console.error('OCR error', ocrErr);
+      await pool.execute(
+        `UPDATE submission_images
+           SET ocr_status='failed', ocr_error=?
+         WHERE id=?`,
+        [String(ocrErr.message || ocrErr).slice(0, 2000), imageId]
+      );
+      return res.status(200).json({
+        id: imageId,
+        report_type,
+        ocr_status: 'failed',
+        error: String(ocrErr.message || ocrErr),
+        label: REPORT_TYPES[report_type].label,
+      });
+    }
+  } catch (e) {
+    console.error('image upload error', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List images for a submission (or for the current draft context).
+// Admins can query by submission_id or user_id+date; venues get their own only.
+app.get('/api/images', authRequired, async (req, res) => {
+  try {
+    const { submission_id, report_date, location_id } = req.query;
+    const where = [];
+    const params = [];
+    if (submission_id) { where.push('submission_id=?'); params.push(parseInt(submission_id)); }
+    if (report_date)   { where.push('report_date=?');   params.push(report_date); }
+    if (req.user.role === 'venue') {
+      where.push('user_id=?'); params.push(req.user.id);
+      if (req.user.location_id) { where.push('(location_id=? OR location_id IS NULL)'); params.push(req.user.location_id); }
+    } else if (location_id) {
+      where.push('location_id=?'); params.push(parseInt(location_id));
+    }
+    const sql = `SELECT id, submission_id, user_id, location_id, report_date, report_type,
+                        filename, mime_type, byte_size, ocr_status, parsed_json, ocr_error, created_at
+                 FROM submission_images
+                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                 ORDER BY created_at DESC LIMIT 200`;
+    const [rows] = await pool.execute(sql, params);
+    res.json(rows.map(r => ({ ...r, parsed_json: r.parsed_json ? JSON.parse(r.parsed_json) : null })));
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message });
+  }
+});
+
+// Serve raw image bytes for thumbnail / lightbox view.
+app.get('/api/images/:id/raw', authRequired, async (req, res) => {
+  try {
+    const [[row]] = await pool.execute(
+      'SELECT user_id, location_id, mime_type, image_bytes FROM submission_images WHERE id=?',
+      [parseInt(req.params.id)]
+    );
+    if (!row) return res.status(404).json({ error: 'not found' });
+    if (req.user.role === 'venue' && row.user_id !== req.user.id &&
+        row.location_id !== req.user.location_id) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    res.setHeader('Content-Type', row.mime_type || 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(row.image_bytes);
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete an image. Venues can only delete their own and only before the
+// submission is approved.
+app.delete('/api/images/:id', authRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [[row]] = await pool.execute(
+      `SELECT si.user_id, si.submission_id, s.status
+       FROM submission_images si
+       LEFT JOIN submissions s ON s.id=si.submission_id
+       WHERE si.id=?`, [id]
+    );
+    if (!row) return res.status(404).json({ error: 'not found' });
+    if (req.user.role !== 'admin') {
+      if (row.user_id !== req.user.id) return res.status(403).json({ error: 'forbidden' });
+      if (row.status === 'approved')   return res.status(409).json({ error: 'submission approved; ask admin' });
+    }
+    await pool.execute('DELETE FROM submission_images WHERE id=?', [id]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message });
+  }
+});
+
+// Re-run OCR on an existing image (e.g. after prompt tweak).
+app.post('/api/images/:id/reparse', authRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const [[row]] = await pool.execute(
+      'SELECT user_id, location_id, mime_type, image_bytes, report_type FROM submission_images WHERE id=?',
+      [id]
+    );
+    if (!row) return res.status(404).json({ error: 'not found' });
+    if (req.user.role === 'venue' && row.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    await pool.execute("UPDATE submission_images SET ocr_status='processing' WHERE id=?", [id]);
+    try {
+      const { raw, parsed } = await runClaudeVisionOCR(row.image_bytes, row.mime_type, row.report_type);
+      await pool.execute(
+        "UPDATE submission_images SET ocr_status='parsed', ocr_raw=?, parsed_json=?, ocr_error=NULL WHERE id=?",
+        [raw, JSON.stringify(parsed), id]
+      );
+      res.json({ id, ocr_status: 'parsed', parsed });
+    } catch (e) {
+      await pool.execute(
+        "UPDATE submission_images SET ocr_status='failed', ocr_error=? WHERE id=?",
+        [String(e.message || e).slice(0, 2000), id]
+      );
+      res.status(200).json({ id, ocr_status: 'failed', error: String(e.message || e) });
+    }
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/reports', authRequired, adminRequired, async (req, res) => {
   const [rows] = await pool.execute(
     `SELECT location, report_date, vendor_name, game_type, total_in, total_out, net_revenue
