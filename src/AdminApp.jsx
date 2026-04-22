@@ -185,8 +185,21 @@ function ReviewSubmission({ user, submission, onDone }) {
       {err && <div style={{padding:'8px 20px',background:'#FFE8E8',color:'#A03030',fontWeight:700}}>{err}</div>}
 
       {/* Read-only view of what the venue submitted. Approve/reject via the
-          sticky header above; admins don't edit submissions in place. */}
-      <div style={{pointerEvents: 'none', userSelect: 'text'}}>
+          sticky header above; admins don't edit submissions in place.
+          Photos card stays interactive so admin can click thumbnails to
+          enlarge and verify OCR numbers against the original receipt. */}
+      <style>{`
+        .admin-review-readonly { user-select: text; }
+        .admin-review-readonly input, .admin-review-readonly textarea,
+        .admin-review-readonly select, .admin-review-readonly button {
+          pointer-events: none;
+        }
+        .admin-review-readonly .card-photos,
+        .admin-review-readonly .card-photos * {
+          pointer-events: auto !important;
+        }
+      `}</style>
+      <div className="admin-review-readonly">
         <DSRForm user={user} initialSubmission={full} onSubmitted={() => {}}/>
       </div>
     </div>

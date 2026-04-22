@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -866,11 +867,37 @@ app.post('/api/images', authRequired, imageUpload.single('image'), async (req, r
     let locationId = req.body.location_id ? parseInt(req.body.location_id) : null;
     if (req.user.role === 'venue') locationId = req.user.location_id || null;
 
+    // Content hash for duplicate detection. Same user + same date + same image
+    // bytes = duplicate. Return the existing row instead of re-uploading + re-OCR.
+    const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+    const [dupes] = await pool.execute(
+      `SELECT id, report_type, ocr_status, parsed_json, ocr_error, filename, created_at
+         FROM submission_images
+        WHERE user_id=? AND sha256=?
+          AND (report_date <=> ?)
+        ORDER BY created_at DESC LIMIT 1`,
+      [req.user.id, sha256, report_date || null]
+    );
+    if (dupes.length) {
+      const dup = dupes[0];
+      return res.json({
+        id: dup.id,
+        report_type: dup.report_type,
+        ocr_status: dup.ocr_status,
+        parsed: dup.parsed_json ? JSON.parse(dup.parsed_json) : null,
+        error: dup.ocr_error || null,
+        label: REPORT_TYPES[dup.report_type]?.label || dup.report_type,
+        duplicate: true,
+        duplicate_of: dup.id,
+        duplicate_uploaded_at: dup.created_at,
+      });
+    }
+
     const [ins] = await pool.execute(
       `INSERT INTO submission_images
          (submission_id, user_id, location_id, report_date, report_type,
-          filename, mime_type, byte_size, image_bytes, ocr_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
+          filename, mime_type, byte_size, image_bytes, sha256, ocr_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
       [
         submission_id ? parseInt(submission_id) : null,
         req.user.id,
@@ -881,6 +908,7 @@ app.post('/api/images', authRequired, imageUpload.single('image'), async (req, r
         req.file.mimetype,
         req.file.size,
         req.file.buffer,
+        sha256,
       ]
     );
     const imageId = ins.insertId;

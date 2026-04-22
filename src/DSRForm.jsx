@@ -180,6 +180,10 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   // Venue users are locked to their assigned location. Admins can pick freely.
   const lockedLocation = user && user.role === 'venue' ? (user.location_name || '') : null;
   const readOnly = initialSubmission && initialSubmission.status === 'approved';
+  // When an admin is reviewing someone else's submission, they can view the
+  // uploaded photos (to verify OCR numbers) but must not be able to delete
+  // them — that would destroy evidence the venue uploaded.
+  const isAdminReviewing = user?.role === 'admin' && !!initialSubmission?.id;
 
   const [loc, setLoc] = useState(lockedLocation || initialSubmission?.payload?.location || "");
   const venueCfg = useMemo(() => getVenueConfig(loc), [loc]);
@@ -319,10 +323,17 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   const [pendingVendor, setPendingVendor]   = useState("mav");
   const fileInputRef = useRef(null);
 
-  // If editing an existing submission, load its already-uploaded images.
+  // Load already-uploaded photos. Two cases:
+  //  1. Editing an existing submission → fetch by submission_id
+  //  2. Fresh form (no submission yet) → fetch by report_date so photos the
+  //     user uploaded earlier and then refreshed away still appear here.
+  //     Server scopes to current user for venues, which is what we want.
   useEffect(() => {
-    if (!initialSubmission?.id) return;
-    api(`/api/images?submission_id=${initialSubmission.id}`)
+    const query = initialSubmission?.id
+      ? `submission_id=${initialSubmission.id}`
+      : dt ? `report_date=${encodeURIComponent(dt)}` : null;
+    if (!query) return;
+    api(`/api/images?${query}`)
       .then(rows => setPhotos(rows.map(r => ({
         id: r.id,
         report_type: r.report_type,
@@ -335,7 +346,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
         filename: r.filename,
       }))))
       .catch(() => {});
-  }, [initialSubmission?.id]);
+  }, [initialSubmission?.id, dt]);
 
   const handlePhotoUpload = useCallback(async (file) => {
     if (!file) return;
@@ -356,6 +367,33 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       if (dt) fd.append('report_date', dt);
       if (initialSubmission?.id) fd.append('submission_id', String(initialSubmission.id));
       const resp = await apiFormData('/api/images', fd);
+      // Duplicate detection: server returns {duplicate: true} when it finds
+      // an identical image for this user + date. Don't double-apply — just
+      // surface the existing tile (if it's already on screen) or add it once.
+      if (resp.duplicate) {
+        setPhotos(p => {
+          // If we already have this tile visible, just flash an error instead
+          // of adding a second entry.
+          if (p.some(x => x.id === resp.id)) {
+            setPhotoError('⚠ That exact photo was already uploaded. Skipped.');
+            return p;
+          }
+          setPhotoError('⚠ Duplicate of a photo already uploaded today — loaded the original.');
+          return [{
+            id: resp.id,
+            report_type: resp.report_type,
+            ocr_status: resp.ocr_status,
+            parsed: resp.parsed || null,
+            error: resp.error || null,
+            label: resp.label || REPORT_TYPES[resp.report_type]?.label,
+            vendorKey,
+            fillMsgs: [],
+            filename: file.name,
+            duplicate: true,
+          }, ...p];
+        });
+        return;
+      }
       // Auto-fill the form from parsed JSON
       const setters = { ug, setGc, setSUn, setSSem, setEp, setRp, setRpCabs, setCash, setPosSemnox, setPosUnion };
       const fillMsgs = resp.ocr_status === 'parsed'
@@ -1037,12 +1075,15 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
     <div className="cards-grid">
       {/* 0. Terminal Report Photos — OCR auto-fill */}
+      <div className="card-photos">
       <Card title="Terminal Report Photos (auto-fill)" icon="📸" color="#6B8FA0" bg="#E3EDF2"
             badge={photos.length ? `${photos.length} uploaded` : null}>
         <div style={{padding:"4px 0 2px",fontSize:12,color:"#3D2E1F",lineHeight:1.4}}>
-          Snap the terminal receipts here and the matching fields below will fill in automatically. Double-check the numbers after — OCR can miss a digit on faded prints.
+          {isAdminReviewing
+            ? "The GM uploaded these photos with the submission. Click a thumbnail to enlarge and verify the parsed numbers."
+            : "Snap the terminal receipts here and the matching fields below will fill in automatically. Double-check the numbers after — OCR can miss a digit on faded prints."}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end",marginTop:8}}>
+        {!isAdminReviewing && <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end",marginTop:8}}>
           <div>
             <label style={{fontSize:10,color:"#3D2E1F",display:"block",marginBottom:2,textTransform:"uppercase",letterSpacing:.5,fontWeight:700}}>Report type</label>
             <select value={pendingType} onChange={e=>setPendingType(e.target.value)}
@@ -1074,7 +1115,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
               style={{display:"none"}}
             />
           </div>
-        </div>
+        </div>}
         {photoError && (
           <div style={{marginTop:8,padding:"8px 10px",borderRadius:6,background:"#FFE8E8",border:"1.5px solid #A03030",fontSize:12,color:"#6B1818",fontWeight:700}}>
             {photoError}
@@ -1083,7 +1124,16 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
         {photos.length > 0 && (
           <div style={{marginTop:10,display:"flex",flexDirection:"column",gap:6}}>
             {photos.map(ph => (
-              <div key={ph.id} style={{display:"flex",gap:10,padding:8,border:"1.5px solid #D8C9BC",borderRadius:8,background:"#FFFDF9"}}>
+              <div key={ph.id} style={{display:"flex",gap:10,padding:8,border:"1.5px solid #D8C9BC",borderRadius:8,background:"#FFFDF9",position:"relative"}}>
+                {/* Corner close button — obvious one-click delete. Hidden
+                    when admin is reviewing someone else's submission. */}
+                {!isAdminReviewing && (
+                  <button type="button" onClick={()=>handlePhotoDelete(ph.id)} disabled={readOnly}
+                          title="Remove this photo"
+                          style={{position:"absolute",top:-6,right:-6,width:22,height:22,borderRadius:"50%",border:"1.5px solid #A03030",background:"#FFF",color:"#A03030",fontSize:13,fontWeight:900,cursor:readOnly?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1,boxShadow:"0 1px 3px #00000020"}}>
+                    ×
+                  </button>
+                )}
                 <AuthImg
                   src={`/api/images/${ph.id}/raw`}
                   alt={ph.filename || ph.label}
@@ -1097,6 +1147,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
                   <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                     <span style={{fontSize:12,fontWeight:800,color:"#000"}}>{REPORT_TYPES[ph.report_type]?.icon} {ph.label}</span>
                     {ph.vendorKey && <span style={{fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:10,background:"#F0E6F1",color:"#6B4A6E"}}>{VEND.find(v=>v.k===ph.vendorKey)?.l || ph.vendorKey}</span>}
+                    {ph.duplicate && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#FFE9D6",color:"#8B4A00"}}>⚠ DUPLICATE</span>}
                     {ph.ocr_status === 'parsed' && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#E6F5DC",color:"#234A12"}}>✓ PARSED</span>}
                     {ph.ocr_status === 'failed' && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#FFE8E8",color:"#6B1818"}}>OCR FAILED</span>}
                     {ph.ocr_status === 'processing' && <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:10,background:"#FFF4D6",color:"#6B4A0A"}}>PROCESSING…</span>}
@@ -1117,16 +1168,18 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
                     </div>
                   )}
                   <div style={{display:"flex",gap:6,marginTop:6}}>
-                    {ph.ocr_status === 'parsed' && (
+                    {ph.ocr_status === 'parsed' && !isAdminReviewing && (
                       <button type="button" onClick={()=>handlePhotoReapply(ph)}
                               style={{padding:"3px 8px",border:"1.5px solid #6B8FA0",borderRadius:5,background:"#FFF",color:"#000",fontSize:10,fontWeight:800,cursor:"pointer"}}>
                         Apply
                       </button>
                     )}
-                    <button type="button" onClick={()=>handlePhotoDelete(ph.id)} disabled={readOnly}
-                            style={{padding:"3px 8px",border:"1.5px solid #A03030",borderRadius:5,background:"#FFF",color:"#A03030",fontSize:10,fontWeight:800,cursor:readOnly?"not-allowed":"pointer"}}>
-                      Remove
-                    </button>
+                    {!isAdminReviewing && (
+                      <button type="button" onClick={()=>handlePhotoDelete(ph.id)} disabled={readOnly}
+                              style={{padding:"3px 8px",border:"1.5px solid #A03030",borderRadius:5,background:"#FFF",color:"#A03030",fontSize:10,fontWeight:800,cursor:readOnly?"not-allowed":"pointer"}}>
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1134,6 +1187,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
           </div>
         )}
       </Card>
+      </div>
 
       {/* 1a. Semnox Sales Detail — shown when the venue uses Semnox */}
       {posSemnox && <div className="card-sales-sem">

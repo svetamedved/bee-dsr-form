@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS submission_images (
   mime_type VARCHAR(100) NOT NULL DEFAULT 'image/jpeg',
   byte_size INT NOT NULL DEFAULT 0,
   image_bytes LONGBLOB NOT NULL,
+  sha256 CHAR(64) NULL,
   ocr_status ENUM('pending','processing','parsed','failed') NOT NULL DEFAULT 'pending',
   ocr_raw LONGTEXT NULL,
   parsed_json LONGTEXT NULL,
@@ -106,8 +107,19 @@ CREATE TABLE IF NOT EXISTS submission_images (
   INDEX idx_si_submission (submission_id),
   INDEX idx_si_user (user_id),
   INDEX idx_si_status (ocr_status),
-  INDEX idx_si_loc_date (location_id, report_date)
+  INDEX idx_si_loc_date (location_id, report_date),
+  INDEX idx_si_dedup (user_id, report_date, sha256)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Migration: add sha256 column to pre-existing submission_images tables.
+-- Safe to re-run. TiDB/MySQL ignores the CREATE TABLE IF NOT EXISTS above on
+-- existing installs, so we need ALTER for the new column.
+SET @has_sha := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='submission_images' AND COLUMN_NAME='sha256');
+SET @sql := IF(@has_sha=0,
+  'ALTER TABLE submission_images ADD COLUMN sha256 CHAR(64) NULL, ADD INDEX idx_si_dedup (user_id, report_date, sha256)',
+  'SELECT "sha256 column already present" AS msg');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- -------------------------------------------------
 -- daily_sales_summary: holds the non-game-revenue DSR fields
