@@ -42,7 +42,7 @@ Three locations use Square POS + Semnox. These need their own dedicated forms (n
 | 16 | Skillzone 2 Mt Pleasant | **Square + Semnox (custom form)** |
 | 17 | Speakeasy Lakeway | ? |
 | 18 | Starlite Saloon | ? |
-| 19 | Whiskey Room | Semnox + Union (skill deposit = full IN, not net) |
+| 19 | Whiskey Room | Semnox + Union — **custom variant** (skill deposit = full Red Plum IN, no Cardinal Xpress, no Golden Dragon) |
 
 ## Form Implications
 
@@ -65,8 +65,11 @@ Three locations use Square POS + Semnox. These need their own dedicated forms (n
 
 ## Skill Deposit Rule
 
-Skill Deposit = **full Red Plum IN amount**, NOT the net.
-Whiskey Room example: In $1067, Out $714, Net $353 → Skill Deposit = $1067.
+**Default (most venues):** Skill Deposit = **Net Red Plum** (In − Out).
+**Whiskey Room exception:** Skill Deposit = **full Red Plum IN amount** (not net).
+Example: In $1067, Out $714, Net $353 → Whiskey Room Skill Deposit = $1067.
+
+Controlled via `VENUE_CONFIG.skillDepositSource` in `src/DSRForm.jsx` (`"redPlumIn"` vs `"redPlumNet"`).
 
 ## Safe Transfer Pairs (both POSes active)
 

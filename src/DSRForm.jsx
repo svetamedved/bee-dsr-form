@@ -101,6 +101,14 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     ]);
   const urc = (i, f, v) => setRpCabs(p => p.map((c, idx) => idx===i ? {...c, [f]: v} : c));
   const [skillDeposit, setSkillDeposit] = useState(+P.skill_deposit || 0);
+  const [skillDepositTouched, setSkillDepositTouched] = useState(!!(+P.skill_deposit));
+  // For venues where skill deposit = full Red Plum IN (e.g. Whiskey Room), auto-sync
+  // skillDeposit with rp.in until the user manually edits the field.
+  useEffect(() => {
+    if (venueCfg.skillDepositSource === "redPlumIn" && !skillDepositTouched) {
+      setSkillDeposit(rp.in);
+    }
+  }, [venueCfg.skillDepositSource, rp.in, skillDepositTouched]);
   // --- Semnox-side sales (Easy Play / arcade / gift certificates) ---
   // Used when posSemnox is on. When posSemnox && !posUnion (Kingsbury mode),
   // this is the unified block that also accepts bar/kitchen/retail via sUn.
@@ -235,7 +243,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     return { vn, ti, to, ng, ncc, agd, compsVar, epTotal, epVariance, cxNet, cxCabNet, rpNet, rpCabNet, endCash,
              semNetSales, semDepositHint, unNetSales, unDepositHint, epDeposit, salesDeposit,
              ns, tcd, td: agd + tcd + skillDeposit };
-  }, [gc, cc, comps, cash, ep, cardinal, cardCabs, rp, rpCabs, skillDeposit, sSem, sUn, sDep, posUnion, posSemnox]);
+  }, [gc, cc, comps, cash, ep, cardinal, cardCabs, rp, rpCabs, skillDeposit, sSem, sUn, sDep, posUnion, posSemnox, VEND, shortages]);
 
   const handleSubmit = async () => {
     if (!loc) { alert("Select a location"); return; }
@@ -888,6 +896,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       {/* 2. Skill Vending Details */}
       <div className="card-rp">
         <Card title="Skill Vending Details" icon="🎮" color="#F4A5B0" bg="#FCEFF1" badge={fmt(skillDeposit)}>
+          {venueCfg.showCardinal && <>
           {/* Cardinal Xpress */}
           <div style={{fontSize:13,color:"#000",marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #D4A027",paddingBottom:3}}>Cardinal Xpress</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:"4px 10px"}}>
@@ -913,6 +922,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
             <button onClick={()=>setCardCabs(p=>[...p,{name:`Cabinet ${p.length+1}`,serial:"",in:0,out:0}])} style={{width:"100%",padding:5,border:"1.5px dashed #D4A027",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:12,fontWeight:800,cursor:"pointer",marginBottom:2}}>+ ADD CARDINAL CABINET</button>
             <F label="Total Cardinal Net" value={c.cxCabNet.toFixed(2)} disabled highlight emphasize/>
           </div>
+          </>}
 
           {/* Red Plum */}
           <div style={{fontSize:13,color:"#000",marginTop:12,marginBottom:4,fontWeight:900,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #F4A5B0",paddingBottom:3}}>Red Plum</div>
@@ -943,11 +953,13 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
 
           {/* Combined Skill Deposit */}
           <div style={{borderTop:"2px solid #000",marginTop:10,paddingTop:6}}>
-            <F label="Deposit Hint (Red Plum IN)" value={rp.in.toFixed(2)} disabled/>
-            <div style={{fontSize:10,color:"#6B5A4E",fontStyle:"italic",margin:"2px 0 4px"}}>Skill Deposit is the FULL Red Plum IN amount, not the net.</div>
-            <F label="Skill Deposit" value={skillDeposit} onChange={setSkillDeposit} emphasize/>
-            {skillDeposit === 0 && rp.in > 0 && (
-              <button onClick={() => setSkillDeposit(rp.in)} style={{width:"100%",padding:5,marginTop:4,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:11,fontWeight:800,cursor:"pointer"}}>USE RED PLUM IN AS SKILL DEPOSIT</button>
+            {venueCfg.skillDepositSource === "redPlumIn" ? <>
+              <F label="Deposit Hint (Red Plum IN)" value={rp.in.toFixed(2)} disabled highlight/>
+              <div style={{fontSize:10,color:"#6B5A4E",fontStyle:"italic",margin:"2px 0 4px"}}>This venue deposits the FULL Red Plum IN amount (not the net).</div>
+            </> : <F label="Deposit Hint (Net Red Plum)" value={c.rpCabNet.toFixed(2)} disabled/>}
+            <F label="Skill Deposit" value={skillDeposit} onChange={v=>{setSkillDeposit(v); setSkillDepositTouched(true);}} emphasize/>
+            {skillDepositTouched && (
+              <button onClick={() => setSkillDepositTouched(false)} style={{width:"100%",padding:5,marginTop:4,border:"1.5px dashed #F4A5B0",borderRadius:6,background:"#FFFDF9",color:"#000",fontSize:11,fontWeight:800,cursor:"pointer"}}>RESET TO AUTO</button>
             )}
           </div>
         </Card>
