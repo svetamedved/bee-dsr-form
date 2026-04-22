@@ -368,6 +368,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
   try {
     const { email, name, password, role, location_id } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    if (String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
     if (!['admin','venue'].includes(role)) return res.status(400).json({ error: 'invalid role' });
     if (role === 'venue' && !location_id) return res.status(400).json({ error: 'venue accounts need a location_id' });
     const hash = await bcrypt.hash(password, 10);
