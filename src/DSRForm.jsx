@@ -970,7 +970,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
         ) : (
           <select value={loc} onChange={e=>setLoc(e.target.value)} style={{flex:2,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,background:"#FFF",color:loc?"#000":"#9C8878",fontWeight:loc?700:400}}><option value="">Select location...</option>{LOCS.map(l=><option key={l}>{l}</option>)}</select>
         )}
-        <input type="date" value={dt} onChange={e=>setDt(e.target.value)} style={{flex:1,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:600}}/>
+        <input type="date" value={dt} onChange={e=>setDt(e.target.value)} style={{flex:"0 0 150px",minWidth:150,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:600}}/>
         <input value={mgr} onChange={e=>setMgr(e.target.value)} placeholder="Manager" style={{flex:1,padding:"7px 9px",border:"2px solid #000",borderRadius:7,fontSize:14,boxSizing:"border-box",background:"#FFF",color:"#000",fontWeight:500}}/>
         <div style={{display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
           <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,fontWeight:700,color:"#000",cursor:"pointer",userSelect:"none"}}>
