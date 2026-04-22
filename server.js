@@ -382,19 +382,76 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
 });
 
 app.patch('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
-  const { active, name, location_id, reset_password } = req.body || {};
-  const sets = [], vals = [];
-  if (active   !== undefined) { sets.push('active=?');      vals.push(active ? 1 : 0); }
-  if (name     !== undefined) { sets.push('name=?');        vals.push(name); }
-  if (location_id !== undefined) { sets.push('location_id=?'); vals.push(location_id); }
-  if (reset_password) {
-    const hash = await bcrypt.hash(reset_password, 10);
-    sets.push('password_hash=?', 'must_change_password=1'); vals.push(hash);
+  try {
+    const { active, name, email, location_id, role, reset_password } = req.body || {};
+    const targetId = parseInt(req.params.id);
+    const sets = [], vals = [];
+    if (active      !== undefined) { sets.push('active=?');      vals.push(active ? 1 : 0); }
+    if (name        !== undefined) { sets.push('name=?');        vals.push(name); }
+    if (location_id !== undefined) { sets.push('location_id=?'); vals.push(location_id); }
+    if (email       !== undefined) {
+      const e = String(email).toLowerCase().trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ error: 'invalid email' });
+      sets.push('email=?'); vals.push(e);
+    }
+    if (role !== undefined) {
+      if (!['admin','venue'].includes(role)) return res.status(400).json({ error: 'invalid role' });
+      // Protect against admins demoting themselves and locking out the system.
+      if (targetId === req.user.id && role !== 'admin') {
+        return res.status(400).json({ error: 'you cannot demote yourself' });
+      }
+      sets.push('role=?'); vals.push(role);
+    }
+    if (reset_password) {
+      if (String(reset_password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
+      const hash = await bcrypt.hash(reset_password, 10);
+      sets.push('password_hash=?', 'must_change_password=1'); vals.push(hash);
+    }
+    if (!sets.length) return res.json({ success: true });
+    vals.push(targetId);
+    await pool.execute(`UPDATE users SET ${sets.join(', ')} WHERE id=?`, vals);
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'email already in use' });
+    console.error(e); res.status(500).json({ error: e.message });
   }
-  if (!sets.length) return res.json({ success: true });
-  vals.push(req.params.id);
-  await pool.execute(`UPDATE users SET ${sets.join(', ')} WHERE id=?`, vals);
-  res.json({ success: true });
+});
+
+// Delete a user. Refuses if the user has submissions (to preserve audit history)
+// — admin should use the Disable toggle instead. Also refuses to delete self.
+app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id);
+    if (targetId === req.user.id) {
+      return res.status(400).json({ error: 'you cannot delete your own account' });
+    }
+    const [[user]] = await pool.execute('SELECT id, email, role FROM users WHERE id=?', [targetId]);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    const [[subCount]] = await pool.execute(
+      'SELECT COUNT(*) AS n FROM submissions WHERE user_id=? OR reviewed_by=?',
+      [targetId, targetId]
+    );
+    if (subCount.n > 0) {
+      return res.status(409).json({
+        error: `user has ${subCount.n} submission(s) on record — disable the account instead so audit history is preserved`,
+        submissions: subCount.n,
+      });
+    }
+    // If this is the last active admin, refuse.
+    if (user.role === 'admin') {
+      const [[{ n: activeAdmins }]] = await pool.execute(
+        "SELECT COUNT(*) AS n FROM users WHERE role='admin' AND active=1 AND id != ?",
+        [targetId]
+      );
+      if (activeAdmins === 0) {
+        return res.status(400).json({ error: 'cannot delete the last active admin' });
+      }
+    }
+    await pool.execute('DELETE FROM users WHERE id=?', [targetId]);
+    res.json({ success: true, deleted: user.email });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message });
+  }
 });
 
 // =====================================================================

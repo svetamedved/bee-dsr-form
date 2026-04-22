@@ -202,6 +202,7 @@ function UserManager() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [form, setForm] = useState({ email: '', name: '', password: '', role: 'venue', location_id: '' });
+  const [editing, setEditing] = useState(null); // user object being edited
 
   const load = useCallback(() => {
     Promise.all([api('/api/admin/users'), api('/api/locations')])
@@ -237,6 +238,37 @@ function UserManager() {
     try {
       await api(`/api/admin/users/${u.id}`, { method: 'PATCH', body: JSON.stringify({ reset_password: pw }) });
       alert(`Password reset. Give ${u.email} the password: ${pw}`);
+    } catch (e) { setErr(e.message); }
+  };
+
+  const deleteUser = async (u) => {
+    if (!confirm(`Delete ${u.email}?\n\nThis permanently removes the account. If they have any submissions, deletion will be blocked and you should disable the account instead.`)) return;
+    setErr(''); setMsg('');
+    try {
+      await api(`/api/admin/users/${u.id}`, { method: 'DELETE' });
+      setMsg(`Deleted ${u.email}`);
+      load();
+    } catch (e) { setErr(e.message); }
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setErr(''); setMsg('');
+    const body = {
+      name: editing.name || null,
+      email: editing.email,
+      role: editing.role,
+      location_id: editing.role === 'venue' ? (editing.location_id ? parseInt(editing.location_id) : null) : null,
+    };
+    if (editing.newPassword) {
+      if (editing.newPassword.length < 8) { setErr('Password must be at least 8 characters'); return; }
+      body.reset_password = editing.newPassword;
+    }
+    try {
+      await api(`/api/admin/users/${editing.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setMsg(editing.newPassword ? `Saved · password reset for ${editing.email}` : `Saved ${editing.email}`);
+      setEditing(null);
+      load();
     } catch (e) { setErr(e.message); }
   };
 
@@ -292,8 +324,10 @@ function UserManager() {
                     </button>
                   </td>
                   <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{u.last_login_at ? new Date(u.last_login_at).toLocaleString() : '—'}</td>
-                  <td style={{...td,textAlign:'right'}}>
+                  <td style={{...td,textAlign:'right',whiteSpace:'nowrap'}}>
+                    <button style={linkBtn} onClick={() => setEditing({ ...u, location_id: u.location_id || '', newPassword: '' })}>Edit</button>
                     <button style={linkBtn} onClick={() => resetPassword(u)}>Reset PW</button>
+                    <button style={{...linkBtn,borderColor:'#A03030',color:'#A03030'}} onClick={() => deleteUser(u)}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -301,6 +335,40 @@ function UserManager() {
           </table>
         </div>
       </div>
+
+      {editing && (
+        <div onClick={() => setEditing(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{...card,maxWidth:460,width:'100%'}}>
+            <div style={cardHeader}>Edit user</div>
+            <div style={{padding:16,display:'flex',flexDirection:'column',gap:8}}>
+              <L>Email</L>
+              <input style={inp} type="email" value={editing.email} onChange={e => setEditing(v => ({...v, email: e.target.value}))}/>
+              <L>Name</L>
+              <input style={inp} value={editing.name || ''} onChange={e => setEditing(v => ({...v, name: e.target.value}))}/>
+              <L>Role</L>
+              <select style={inp} value={editing.role} onChange={e => setEditing(v => ({...v, role: e.target.value}))}>
+                <option value="venue">Venue</option>
+                <option value="admin">Admin</option>
+              </select>
+              {editing.role === 'venue' && (
+                <>
+                  <L>Location</L>
+                  <select style={inp} value={editing.location_id || ''} onChange={e => setEditing(v => ({...v, location_id: e.target.value}))}>
+                    <option value="">Select location…</option>
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </>
+              )}
+              <L>New password (optional)</L>
+              <input style={inp} type="text" value={editing.newPassword || ''} placeholder="Leave blank to keep current password" onChange={e => setEditing(v => ({...v, newPassword: e.target.value}))}/>
+              <div style={{display:'flex',gap:8,marginTop:10}}>
+                <button onClick={saveEdit} style={{...linkBtn,flex:1,padding:'8px 14px',background:'#000',color:'#FAD6A5',borderColor:'#000'}}>Save</button>
+                <button onClick={() => setEditing(null)} style={{...linkBtn,padding:'8px 14px'}}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
