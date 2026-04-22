@@ -76,8 +76,21 @@ function formatIIFDate(dateStr) {
 }
 
 // Build the QuickBooks IIF from a submission payload.
-// Kept in lockstep with the original client-side logic in App.jsx so the
-// export on approval matches what the venue saw at submit time.
+//
+// A DSR day produces up to FOUR separate DEPOSIT transactions so each physical
+// deposit slip can be reconciled independently in QuickBooks:
+//
+//   1. GC / FP (sweepstakes cash)     — from actual_gc_deposit
+//   2. Skill vending                   — from skill_deposit
+//   3. Semnox EP deposit               — from ep_deposit   (only when venue uses Semnox)
+//   4. Union Sales deposit             — from sales_deposit (only when venue uses Union)
+//
+// When a venue has BOTH Semnox and Union (the BES 8 / MT Corsicana / MT Conroe case),
+// entries 3 AND 4 are both emitted — one per physical deposit slip. That's what
+// the accounting team asked for ("2 separate entries for 2 deposits").
+//
+// For backward compatibility with older submissions that predate the sem_/un_ fields,
+// if those are missing we fall back to the legacy sales_bar/sales_kitchen logic.
 function buildIIF(payload, locationName) {
   const d   = payload;
   const loc = locationName || d.location || 'Unknown';
@@ -88,37 +101,99 @@ function buildIIF(payload, locationName) {
   L.push('!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tMEMO');
   L.push('!ENDTRNS');
 
+  // Helper: emit one DEPOSIT transaction + splits. Returns early if the deposit is 0
+  // and none of the split amounts are non-zero.
+  const writeDeposit = (amount, memo, splits) => {
+    const hasSplits = splits.some(s => toNum(s.amount));
+    if (!amount && !hasSplits) return;
+    L.push(`TRNS\tDEPOSIT\t${dt}\tChecking Account\t\t${loc}\t${amount.toFixed(2)}\t${memo}`);
+    for (const s of splits) {
+      const v = toNum(s.amount);
+      if (v) L.push(`SPL\tDEPOSIT\t${dt}\t${s.accnt}\t\t${loc}\t${(-v).toFixed(2)}\t${s.memo || memo}`);
+    }
+    L.push('ENDTRNS');
+  };
+
+  // --- 1. GC / FP deposit ---
   const gcDeposit = toNum(d.actual_gc_deposit);
-  if (gcDeposit) {
-    L.push(`TRNS\tDEPOSIT\t${dt}\tChecking Account\t\t${loc}\t${gcDeposit.toFixed(2)}\tGC Deposit - ${loc}`);
-    L.push(`SPL\tDEPOSIT\t${dt}\tSweepstakes Revenue\t\t${loc}\t${(-gcDeposit).toFixed(2)}\tGC Deposit`);
-    L.push('ENDTRNS');
-  }
+  writeDeposit(gcDeposit, `GC Deposit - ${loc}`, [
+    { accnt: 'Sweepstakes Revenue', amount: gcDeposit, memo: 'GC Deposit' },
+  ]);
+
+  // --- 2. Skill vending deposit ---
   const skillDep = toNum(d.skill_deposit);
-  if (skillDep) {
-    L.push(`TRNS\tDEPOSIT\t${dt}\tChecking Account\t\t${loc}\t${skillDep.toFixed(2)}\tSkill Deposit - ${loc}`);
-    L.push(`SPL\tDEPOSIT\t${dt}\tSkill Game Revenue\t\t${loc}\t${(-skillDep).toFixed(2)}\tSkill Deposit`);
-    L.push('ENDTRNS');
+  writeDeposit(skillDep, `Skill Deposit - ${loc}`, [
+    { accnt: 'Skill Game Revenue', amount: skillDep, memo: 'Skill Deposit' },
+  ]);
+
+  // --- 3. Semnox EP deposit ---
+  // Prefer explicit ep_deposit; fall back to ep_total for submissions predating the refactor.
+  const epDep  = toNum(d.ep_deposit);
+  const hasSem = epDep || toNum(d.sem_ep_card) || toNum(d.sem_arcade_credits)
+              || toNum(d.sem_arcade_time) || toNum(d.sem_gc_cert_sales);
+  if (hasSem) {
+    writeDeposit(epDep || toNum(d.sem_deposit_hint), `EP Deposit - ${loc}`, [
+      { accnt: 'Easy Play Card Sales',        amount:  toNum(d.sem_ep_card),            memo: 'Easy Play Card' },
+      { accnt: 'Easy Play Credits',           amount:  toNum(d.sem_arcade_credits),     memo: 'Easy Play Credits' },
+      { accnt: 'Arcade Time Revenue',         amount:  toNum(d.sem_arcade_time),        memo: 'Arcade Time' },
+      { accnt: 'Gift Certificate Sales',      amount:  toNum(d.sem_gc_cert_sales),      memo: 'Gift Certificate Sales' },
+      { accnt: 'Sales Comps',                 amount: -toNum(d.sem_comps),              memo: 'Comps (contra)' },
+      { accnt: 'Sales Discounts',             amount: -toNum(d.sem_discounts),          memo: 'Discounts (contra)' },
+      { accnt: 'Sales Tax Payable',           amount:  toNum(d.sem_taxes),              memo: 'Taxes' },
+      { accnt: 'Tips Payable',                amount:  toNum(d.sem_tips),               memo: 'Tips' },
+      { accnt: 'Credit Card Clearing',        amount: -toNum(d.sem_credit_cards),       memo: 'Semnox CC (contra)' },
+      { accnt: 'Credit Card Fees',            amount:  toNum(d.sem_cc_fees),            memo: 'Semnox CC Fees' },
+      { accnt: 'Gift Certificate Redemptions', amount:  toNum(d.sem_gc_cert_redemptions), memo: 'GC Cert Redemptions' },
+      { accnt: 'Gift Certificate Conversions', amount: -toNum(d.sem_gc_cert_conversions), memo: 'GC Cert Conversions (contra)' },
+    ]);
+  } else if (toNum(d.ep_total)) {
+    // Legacy: older submissions only had ep_total on the Semnox COAMs block
+    writeDeposit(toNum(d.ep_total), `COAMs - ${loc}`, [
+      { accnt: 'COAM Revenue', amount: toNum(d.ep_total), memo: 'COAMs' },
+    ]);
   }
-  const bar = toNum(d.sales_bar), kitchen = toNum(d.sales_kitchen);
-  if (bar || kitchen) {
-    const tcd = toNum(d.total_cash_deposit) || (bar + kitchen);
-    L.push(`TRNS\tDEPOSIT\t${dt}\tChecking Account\t\t${loc}\t${tcd.toFixed(2)}\tCash Deposit - ${loc}`);
-    if (bar)     L.push(`SPL\tDEPOSIT\t${dt}\tBar Sales\t\t${loc}\t${(-bar).toFixed(2)}\tBar Sales`);
-    if (kitchen) L.push(`SPL\tDEPOSIT\t${dt}\tKitchen Sales\t\t${loc}\t${(-kitchen).toFixed(2)}\tKitchen Sales`);
-    const ccTotal = toNum(d.total_credit_cards) + toNum(d.bar_credit_cards);
-    if (ccTotal)       L.push(`SPL\tDEPOSIT\t${dt}\tCredit Card Clearing\t\t${loc}\t${ccTotal.toFixed(2)}\tCredit Cards`);
-    if (toNum(d.sales_comps)) L.push(`SPL\tDEPOSIT\t${dt}\tComps Expense\t\t${loc}\t${toNum(d.sales_comps).toFixed(2)}\tComps`);
-    if (toNum(d.total_taxes)) L.push(`SPL\tDEPOSIT\t${dt}\tSales Tax Payable\t\t${loc}\t${(-toNum(d.total_taxes)).toFixed(2)}\tTaxes`);
-    if (toNum(d.total_tips))  L.push(`SPL\tDEPOSIT\t${dt}\tTips Payable\t\t${loc}\t${(-toNum(d.total_tips)).toFixed(2)}\tTips`);
-    L.push('ENDTRNS');
+
+  // --- 4. Union Sales deposit ---
+  // Prefer explicit sales_deposit; fall back to the old total_cash_deposit for legacy payloads.
+  const salesDep = toNum(d.sales_deposit);
+  const hasUn = salesDep || toNum(d.un_bar) || toNum(d.un_kitchen)
+             || toNum(d.un_retail) || toNum(d.un_gc_activations);
+  if (hasUn) {
+    writeDeposit(salesDep || toNum(d.un_deposit_hint), `Sales Deposit - ${loc}`, [
+      { accnt: 'Bar Sales',              amount:  toNum(d.un_bar),            memo: 'Bar Sales' },
+      { accnt: 'Kitchen Sales',          amount:  toNum(d.un_kitchen),        memo: 'Kitchen Sales' },
+      { accnt: 'Gift Card Activations',  amount:  toNum(d.un_gc_activations), memo: 'Gift Card Activations' },
+      { accnt: 'Retail Sales',           amount:  toNum(d.un_retail),         memo: 'Retail Sales' },
+      { accnt: 'Sales Comps',            amount: -toNum(d.un_comps),          memo: 'Comps (contra)' },
+      { accnt: 'Sales Discounts',        amount: -toNum(d.un_discounts),      memo: 'Discounts (contra)' },
+      { accnt: 'Spills',                 amount: -toNum(d.un_spills),         memo: 'Spills (contra)' },
+      { accnt: 'Sales Tax Payable',      amount:  toNum(d.un_taxes),          memo: 'Taxes' },
+      { accnt: 'Tips Payable',           amount:  toNum(d.un_tips),           memo: 'Tips' },
+      { accnt: 'Credit Card Clearing',   amount: -toNum(d.un_credit_cards),   memo: 'Union CC (contra)' },
+      { accnt: 'Bar Credit Cards',       amount: -toNum(d.un_bar_cc),         memo: 'Bar CC (contra)' },
+      { accnt: 'Non-Cash Adj Fees',      amount:  toNum(d.un_non_cash_fees),  memo: 'Non-Cash Adj Fees' },
+      { accnt: 'Recoveries',             amount:  toNum(d.un_recoveries),     memo: 'Recoveries' },
+      { accnt: 'Gift Card Redemptions',  amount:  toNum(d.un_gc_redemptions), memo: 'GC Redemptions' },
+      { accnt: 'Gift Card Voids',        amount: -toNum(d.un_gc_voids),       memo: 'GC Voids (contra)' },
+      { accnt: 'Gift Card Conversions',  amount: -toNum(d.un_gc_conversions), memo: 'GC Conversions (contra)' },
+    ]);
+  } else {
+    // Legacy path: older submissions used sales_bar/sales_kitchen on a single aggregate line.
+    const bar = toNum(d.sales_bar), kitchen = toNum(d.sales_kitchen);
+    if (bar || kitchen) {
+      const tcd = toNum(d.total_cash_deposit) || (bar + kitchen);
+      L.push(`TRNS\tDEPOSIT\t${dt}\tChecking Account\t\t${loc}\t${tcd.toFixed(2)}\tCash Deposit - ${loc}`);
+      if (bar)     L.push(`SPL\tDEPOSIT\t${dt}\tBar Sales\t\t${loc}\t${(-bar).toFixed(2)}\tBar Sales`);
+      if (kitchen) L.push(`SPL\tDEPOSIT\t${dt}\tKitchen Sales\t\t${loc}\t${(-kitchen).toFixed(2)}\tKitchen Sales`);
+      const ccTotal = toNum(d.total_credit_cards) + toNum(d.bar_credit_cards);
+      if (ccTotal)              L.push(`SPL\tDEPOSIT\t${dt}\tCredit Card Clearing\t\t${loc}\t${ccTotal.toFixed(2)}\tCredit Cards`);
+      if (toNum(d.sales_comps)) L.push(`SPL\tDEPOSIT\t${dt}\tComps Expense\t\t${loc}\t${toNum(d.sales_comps).toFixed(2)}\tComps`);
+      if (toNum(d.total_taxes)) L.push(`SPL\tDEPOSIT\t${dt}\tSales Tax Payable\t\t${loc}\t${(-toNum(d.total_taxes)).toFixed(2)}\tTaxes`);
+      if (toNum(d.total_tips))  L.push(`SPL\tDEPOSIT\t${dt}\tTips Payable\t\t${loc}\t${(-toNum(d.total_tips)).toFixed(2)}\tTips`);
+      L.push('ENDTRNS');
+    }
   }
-  const epTotal = toNum(d.ep_total);
-  if (epTotal) {
-    L.push(`TRNS\tDEPOSIT\t${dt}\tChecking Account\t\t${loc}\t${epTotal.toFixed(2)}\tCOAMs - ${loc}`);
-    L.push(`SPL\tDEPOSIT\t${dt}\tCOAM Revenue\t\t${loc}\t${(-epTotal).toFixed(2)}\tCOAMs`);
-    L.push('ENDTRNS');
-  }
+
   return L.join('\r\n') + '\r\n';
 }
 

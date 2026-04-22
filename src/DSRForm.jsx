@@ -82,29 +82,57 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     ]);
   const urc = (i, f, v) => setRpCabs(p => p.map((c, idx) => idx===i ? {...c, [f]: v} : c));
   const [skillDeposit, setSkillDeposit] = useState(+P.skill_deposit || 0);
-  const [s, setS] = useState({
-    epCard:        +P.sales_ep_card      || 0,
-    epCredits:     +P.sales_ep_credits   || 0,
-    bar:           +P.sales_bar          || 0,
-    kitchen:       +P.sales_kitchen      || 0,
-    gcSales:       +P.sales_gc           || 0,
-    retail:        +P.sales_retail       || 0,
-    comps:         +P.sales_comps        || 0,
-    disc:          +P.sales_discounts    || 0,
-    spills:        +P.sales_spills       || 0,
-    taxes:         +P.total_taxes        || 0,
-    tips:          +P.total_tips         || 0,
-    cc:            +P.total_credit_cards || 0,
-    barCC:         +P.bar_credit_cards   || 0,
-    nonCashFees:   +P.non_cash_fees      || 0,
-    gcRedemptions: +P.gc_redemptions     || 0,
-    gcConversions: +P.gc_conversions     || 0,
-    rec:           +P.recoveries         || 0,
+  // --- Semnox-side sales (Easy Play / arcade / gift certificates) ---
+  // Used when posSemnox is on. When posSemnox && !posUnion (Kingsbury mode),
+  // this is the unified block that also accepts bar/kitchen/retail via sUn.
+  const [sSem, setSSem] = useState({
+    epCard:              +(P.sem_ep_card              ?? P.sales_ep_card)       || 0,
+    arcadeCredits:       +(P.sem_arcade_credits       ?? P.sales_ep_credits)    || 0,
+    arcadeTime:          +(P.sem_arcade_time)                                    || 0,
+    gcCertSales:         +(P.sem_gc_cert_sales        ?? (P.pos_semnox && !P.pos_union ? P.sales_gc : 0)) || 0,
+    comps:               +(P.sem_comps)                                          || 0,
+    disc:                +(P.sem_discounts)                                      || 0,
+    taxes:               +(P.sem_taxes)                                          || 0,
+    tips:                +(P.sem_tips)                                           || 0,
+    ccFees:              +(P.sem_cc_fees)                                        || 0,
+    cc:                  +(P.sem_credit_cards)                                   || 0,
+    gcCertRedemptions:   +(P.sem_gc_cert_redemptions)                            || 0,
+    gcCertConversions:   +(P.sem_gc_cert_conversions)                            || 0,
+  });
+  // --- Union-side sales (bar/food/retail) ---
+  // Used when posUnion is on. Also used for the minimal skill-only layout
+  // (posSemnox=false, posUnion=false — e.g. Skillzone 1 Porter).
+  const [sUn, setSUn] = useState({
+    bar:           +(P.un_bar           ?? P.sales_bar)          || 0,
+    kitchen:       +(P.un_kitchen       ?? P.sales_kitchen)      || 0,
+    gcActivations: +(P.un_gc_activations)                        || 0,
+    retail:        +(P.un_retail        ?? P.sales_retail)       || 0,
+    comps:         +(P.un_comps         ?? P.sales_comps)        || 0,
+    disc:          +(P.un_discounts     ?? P.sales_discounts)    || 0,
+    spills:        +(P.un_spills        ?? P.sales_spills)       || 0,
+    taxes:         +(P.un_taxes         ?? P.total_taxes)        || 0,
+    tips:          +(P.un_tips          ?? P.total_tips)         || 0,
+    cc:            +(P.un_credit_cards  ?? P.total_credit_cards) || 0,
+    barCC:         +(P.un_bar_cc        ?? P.bar_credit_cards)   || 0,
+    nonCashFees:   +(P.un_non_cash_fees ?? P.non_cash_fees)      || 0,
+    gcRedemptions: +(P.un_gc_redemptions ?? P.gc_redemptions)    || 0,
+    gcVoids:       +(P.un_gc_voids)                              || 0,
+    gcConversions: +(P.un_gc_conversions ?? P.gc_conversions)    || 0,
+    rec:           +(P.un_recoveries    ?? P.recoveries)         || 0,
+  });
+  // --- Deposits (editable — venue enters what POS says) ---
+  const [sDep, setSDep] = useState({
+    epDeposit:    +(P.ep_deposit)       || 0,  // Semnox side (only when split)
+    salesDeposit: +(P.sales_deposit)    || 0,  // Union side  (only when split)
+    tcd:          +(P.total_cash_deposit_override) || 0, // unified mode override
   });
   const [compDesc, setCompDesc]   = useState(P.comps_description || "");
+  // Shortage type is venue-dependent: EP/Skill/Sales for Semnox venues,
+  // MD/Skill/Sales for non-Semnox (skill-only) venues.
+  const shortageTypes = posSemnox ? ["GC","EP","Skill","Sales"] : ["GC","MD","Skill","Sales"];
   const [shortages, setShortages] = useState(Array.isArray(P.shortages) && P.shortages.length
     ? P.shortages
-    : [{type:"GC", name:"", amt:0},{type:"Skill", name:"", amt:0},{type:"Sales", name:"", amt:0}]);
+    : [{type: posSemnox ? "EP" : "MD", name:"", amt:0},{type:"Skill", name:"", amt:0},{type:"Sales", name:"", amt:0}]);
   const uShort = (i,f,v) => setShortages(p=>p.map((s,idx)=>idx===i?{...s,[f]:v}:s));
   const [poolDrop, setPoolDrop] = useState(+P.pool_drop || 0);
   const [notes, setNotes]       = useState(P.notes || "");
@@ -123,10 +151,47 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     const rpNet = rp.in - rp.out;
     const rpCabNet = rpCabs.reduce((sum, c) => sum + (c.in - c.out), 0);
     const endCash = cash.safe + cash.drawer;
-    const ns = s.bar + s.kitchen + s.retail + s.gcSales + s.epCard + s.epCredits - s.comps - s.disc - s.spills;
-    const tcd = ns - s.cc - s.barCC - s.nonCashFees + s.rec + s.taxes + s.tips + s.gcRedemptions - s.gcConversions;
-    return { vn, ti, to, ng, ncc, agd, compsVar, epTotal, epVariance, cxNet, cxCabNet, rpNet, rpCabNet, endCash, ns, tcd, td: agd + tcd + skillDeposit };
-  }, [gc, cc, comps, cash, ep, cardinal, cardCabs, rp, rpCabs, skillDeposit, s]);
+
+    // Semnox-side net sales + deposit hint.
+    // The Semnox "Sales Total" already includes sales tax, so the deposit formula is just:
+    //   deposit = Sales Total − Credit Cards + Tips  (tips are cash handed to staff that still go to the safe)
+    // Verified against BES 8 DSR 04.01.26:  $2664.74 − $1330.88 + $5.00 = $1338.86 ✓
+    const semNetSales = sSem.epCard + sSem.arcadeCredits + sSem.arcadeTime + sSem.gcCertSales
+                      - sSem.comps - sSem.disc;
+    const semDepositHint = semNetSales - sSem.cc + sSem.tips
+                          + sSem.gcCertRedemptions - sSem.gcCertConversions;
+
+    // Union-side net sales + deposit hint.
+    // Verified against BES 8 DSR 04.01.26:  $432.21 − $209.82 + $60 = $282.39 ✓
+    const unNetSales = sUn.bar + sUn.kitchen + sUn.gcActivations + sUn.retail
+                     - sUn.comps - sUn.disc - sUn.spills;
+    const unDepositHint = unNetSales + sUn.tips
+                        - sUn.cc - sUn.barCC - sUn.nonCashFees
+                        + sUn.rec + sUn.gcRedemptions - sUn.gcConversions - sUn.gcVoids;
+
+    // Resolve the actual deposits to use. Venue-entered values win; fall back to the hint
+    // so the totals bar has something reasonable before the user fills the deposit field.
+    let epDeposit = 0, salesDeposit = 0, tcd = 0;
+    if (posSemnox && posUnion) {
+      epDeposit    = sDep.epDeposit    || semDepositHint;
+      salesDeposit = sDep.salesDeposit || unDepositHint;
+      tcd = epDeposit + salesDeposit;
+    } else if (posSemnox && !posUnion) {
+      epDeposit = sDep.epDeposit || sDep.tcd || semDepositHint;
+      tcd = epDeposit;
+    } else if (!posSemnox && posUnion) {
+      salesDeposit = sDep.salesDeposit || sDep.tcd || unDepositHint;
+      tcd = salesDeposit;
+    } else {
+      // Skill-only venue (e.g. SZ Porter): no sales POS; cash deposit is whatever the user types.
+      tcd = sDep.tcd || 0;
+    }
+
+    const ns = semNetSales + unNetSales;
+    return { vn, ti, to, ng, ncc, agd, compsVar, epTotal, epVariance, cxNet, cxCabNet, rpNet, rpCabNet, endCash,
+             semNetSales, semDepositHint, unNetSales, unDepositHint, epDeposit, salesDeposit,
+             ns, tcd, td: agd + tcd + skillDeposit };
+  }, [gc, cc, comps, cash, ep, cardinal, cardCabs, rp, rpCabs, skillDeposit, sSem, sUn, sDep, posUnion, posSemnox]);
 
   const handleSubmit = async () => {
     if (!loc) { alert("Select a location"); return; }
@@ -170,17 +235,59 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       cash_misc_payout: cash.miscPayout, cash_drawer: cash.drawer, cash_end_safe: cash.endSafe,
       cash_bleed: cash.bleed, cash_bleed_reason: cash.bleedReason,
 
-      // Sales (Union)
-      sales_ep_card: s.epCard, sales_ep_credits: s.epCredits,
-      sales_bar: s.bar, sales_kitchen: s.kitchen,
-      sales_gc: s.gcSales, sales_retail: s.retail,
-      sales_comps: s.comps, sales_discounts: s.disc, sales_spills: s.spills,
+      // Sales - Semnox side (Easy Play / arcade / gift certificates).
+      // Only meaningful when posSemnox is on; still sent for completeness.
+      sem_ep_card:             sSem.epCard,
+      sem_arcade_credits:      sSem.arcadeCredits,
+      sem_arcade_time:         sSem.arcadeTime,
+      sem_gc_cert_sales:       sSem.gcCertSales,
+      sem_comps:               sSem.comps,
+      sem_discounts:           sSem.disc,
+      sem_taxes:               sSem.taxes,
+      sem_tips:                sSem.tips,
+      sem_cc_fees:             sSem.ccFees,
+      sem_credit_cards:        sSem.cc,
+      sem_gc_cert_redemptions: sSem.gcCertRedemptions,
+      sem_gc_cert_conversions: sSem.gcCertConversions,
+      sem_net_sales:           c.semNetSales,
+      sem_deposit_hint:        c.semDepositHint,
+
+      // Sales - Union side (bar / kitchen / retail / gift card activations).
+      un_bar:             sUn.bar,
+      un_kitchen:         sUn.kitchen,
+      un_gc_activations:  sUn.gcActivations,
+      un_retail:          sUn.retail,
+      un_comps:           sUn.comps,
+      un_discounts:       sUn.disc,
+      un_spills:          sUn.spills,
+      un_taxes:           sUn.taxes,
+      un_tips:            sUn.tips,
+      un_credit_cards:    sUn.cc,
+      un_bar_cc:          sUn.barCC,
+      un_non_cash_fees:   sUn.nonCashFees,
+      un_gc_redemptions:  sUn.gcRedemptions,
+      un_gc_voids:        sUn.gcVoids,
+      un_gc_conversions:  sUn.gcConversions,
+      un_recoveries:      sUn.rec,
+      un_net_sales:       c.unNetSales,
+      un_deposit_hint:    c.unDepositHint,
+
+      // Deposits (editable — venue enters what the POS said)
+      ep_deposit:    c.epDeposit,     // Semnox side
+      sales_deposit: c.salesDeposit,  // Union side
+      total_cash_deposit_override: sDep.tcd,
+
+      // Back-compat aggregated fields so existing server/admin code keeps working
       net_sales: c.ns,
-      total_credit_cards: s.cc, bar_credit_cards: s.barCC,
-      non_cash_fees: s.nonCashFees,
-      total_taxes: s.taxes, total_tips: s.tips,
-      recoveries: s.rec, gc_redemptions: s.gcRedemptions, gc_conversions: s.gcConversions,
-      pool_drop: poolDrop,
+      total_credit_cards: (sSem.cc || 0) + (sUn.cc || 0),
+      bar_credit_cards:   sUn.barCC,
+      non_cash_fees:      sUn.nonCashFees,
+      total_taxes:        (sSem.taxes || 0) + (sUn.taxes || 0),
+      total_tips:         (sSem.tips  || 0) + (sUn.tips  || 0),
+      recoveries:         sUn.rec,
+      gc_redemptions:     sUn.gcRedemptions,
+      gc_conversions:     sUn.gcConversions,
+      pool_drop:          poolDrop,
       total_cash_deposit: c.tcd,
 
       // Shortages & notes
@@ -223,7 +330,9 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       "--- TOTALS ---",
       `GC Deposit: ${fmt(c.agd)}`,
       `Skill Deposit: ${fmt(skillDeposit)}`,
-      `Cash Deposit: ${fmt(c.tcd)}`,
+      ...(posSemnox ? [`EP Deposit: ${fmt(c.epDeposit)}`] : []),
+      ...(posUnion  ? [`Sales Deposit: ${fmt(c.salesDeposit)}`] : []),
+      `Total Cash Deposit: ${fmt(c.tcd)}`,
       `TOTAL DEPOSIT: ${fmt(c.td)}`,
       "",
       `Net GC/FP: ${fmt(c.ng)}`,
@@ -326,18 +435,48 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     line("Total Red Plum Cab Net", fmt(c.rpCabNet), true);
     line("Skill Deposit", fmt(skillDeposit), true);
 
-    heading("SALES DETAIL");
-    line("COAMs CARD", fmt(s.epCard)); line("COAMs CREDITS", fmt(s.epCredits));
-    line("Bar Sales", fmt(s.bar)); line("Kitchen Sales", fmt(s.kitchen));
-    line("Gift Cert Sales", fmt(s.gcSales)); line("Retail Sales", fmt(s.retail));
-    line("Comps (-)", fmt(s.comps)); line("Discounts (-)", fmt(s.disc)); line("Spills (-)", fmt(s.spills));
-    line("NET SALES", fmt(c.ns), true);
-    y += 4;
-    line("Total Credit Cards", fmt(s.cc)); line("Bar Credit Cards", fmt(s.barCC));
-    line("Non-Cash Adj Fees", fmt(s.nonCashFees));
-    line("Total Taxes", fmt(s.taxes)); line("Total Tips", fmt(s.tips));
-    line("Recoveries", fmt(s.rec));
-    line("GC Redemptions", fmt(s.gcRedemptions)); line("GC Conversions", fmt(s.gcConversions));
+    if (posSemnox) {
+      heading("SALES DETAIL — SEMNOX");
+      line("Easy Play — Card",     fmt(sSem.epCard));
+      line("Easy Play — Credits",  fmt(sSem.arcadeCredits));
+      line("Arcade Time",          fmt(sSem.arcadeTime));
+      line("Gift Cert Sales",      fmt(sSem.gcCertSales));
+      line("Comps (-)",            fmt(sSem.comps));
+      line("Discounts (-)",        fmt(sSem.disc));
+      line("Semnox Net Sales",     fmt(c.semNetSales), true);
+      line("Credit Cards",         fmt(sSem.cc));
+      line("CC Fees",              fmt(sSem.ccFees));
+      line("Taxes",                fmt(sSem.taxes));
+      line("Tips",                 fmt(sSem.tips));
+      line("Gift Cert Redemptions", fmt(sSem.gcCertRedemptions));
+      line("Gift Cert Conversions", fmt(sSem.gcCertConversions));
+      line(posUnion ? "EP DEPOSIT" : "CASH DEPOSIT (Semnox)", fmt(c.epDeposit), true);
+    }
+    if (posUnion) {
+      heading("SALES DETAIL — UNION");
+      line("Bar Sales",             fmt(sUn.bar));
+      line("Kitchen Sales",         fmt(sUn.kitchen));
+      line("Gift Card Activations", fmt(sUn.gcActivations));
+      line("Retail Sales",          fmt(sUn.retail));
+      line("Comps (-)",             fmt(sUn.comps));
+      line("Discounts (-)",         fmt(sUn.disc));
+      line("Spills (-)",            fmt(sUn.spills));
+      line("Union Net Sales",       fmt(c.unNetSales), true);
+      line("Total Credit Cards",    fmt(sUn.cc));
+      line("Bar Credit Cards",      fmt(sUn.barCC));
+      line("Non-Cash Adj Fees",     fmt(sUn.nonCashFees));
+      line("Total Taxes",           fmt(sUn.taxes));
+      line("Total Tips",            fmt(sUn.tips));
+      line("Recoveries",            fmt(sUn.rec));
+      line("GC Redemptions",        fmt(sUn.gcRedemptions));
+      line("GC Voids",              fmt(sUn.gcVoids));
+      line("GC Conversions",        fmt(sUn.gcConversions));
+      line("SALES DEPOSIT",         fmt(c.salesDeposit), true);
+    }
+    if (!posSemnox && !posUnion) {
+      heading("CASH DEPOSIT");
+      line("Cash Deposit", fmt(sDep.tcd), true);
+    }
     line("TOTAL CASH DEPOSIT", fmt(c.tcd), true);
 
     heading("EMPLOYEE SHORTAGES");
@@ -376,11 +515,41 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     add("Red Plum In", rp.in); add("Red Plum Out", rp.out); add("Red Plum Net", c.rpNet);
     rpCabs.forEach((cab, i) => { add(`RP Cab${i+1} Name`, cab.name); add(`RP Cab${i+1} TID`, cab.tid); add(`RP Cab${i+1} Serial`, cab.serial); add(`RP Cab${i+1} In`, cab.in); add(`RP Cab${i+1} Out`, cab.out); });
     add("Red Plum Cab Net", c.rpCabNet); add("Skill Deposit", skillDeposit);
-    add("COAMs Card Sales", s.epCard); add("COAMs Credits Sales", s.epCredits); add("Bar Sales", s.bar); add("Kitchen Sales", s.kitchen);
-    add("GC Sales", s.gcSales); add("Retail Sales", s.retail); add("Comps", s.comps); add("Discounts", s.disc); add("Spills", s.spills);
-    add("Net Sales", c.ns); add("Total CC", s.cc); add("Bar CC", s.barCC); add("Non-Cash Fees", s.nonCashFees);
-    add("Taxes", s.taxes); add("Tips", s.tips); add("Recoveries", s.rec);
-    add("GC Redemptions", s.gcRedemptions); add("GC Conversions", s.gcConversions);
+    // Semnox-side sales
+    add("Sem Easy Play Card",        sSem.epCard);
+    add("Sem Arcade Credits",        sSem.arcadeCredits);
+    add("Sem Arcade Time",           sSem.arcadeTime);
+    add("Sem Gift Cert Sales",       sSem.gcCertSales);
+    add("Sem Comps",                 sSem.comps);
+    add("Sem Discounts",             sSem.disc);
+    add("Sem Net Sales",             c.semNetSales);
+    add("Sem Credit Cards",          sSem.cc);
+    add("Sem CC Fees",               sSem.ccFees);
+    add("Sem Taxes",                 sSem.taxes);
+    add("Sem Tips",                  sSem.tips);
+    add("Sem Gift Cert Redemptions", sSem.gcCertRedemptions);
+    add("Sem Gift Cert Conversions", sSem.gcCertConversions);
+    add("EP Deposit",                c.epDeposit);
+    // Union-side sales
+    add("Un Bar Sales",           sUn.bar);
+    add("Un Kitchen Sales",       sUn.kitchen);
+    add("Un GC Activations",      sUn.gcActivations);
+    add("Un Retail Sales",        sUn.retail);
+    add("Un Comps",               sUn.comps);
+    add("Un Discounts",           sUn.disc);
+    add("Un Spills",              sUn.spills);
+    add("Un Net Sales",           c.unNetSales);
+    add("Un Total CC",            sUn.cc);
+    add("Un Bar CC",              sUn.barCC);
+    add("Un Non-Cash Fees",       sUn.nonCashFees);
+    add("Un Taxes",               sUn.taxes);
+    add("Un Tips",                sUn.tips);
+    add("Un Recoveries",          sUn.rec);
+    add("Un GC Redemptions",      sUn.gcRedemptions);
+    add("Un GC Voids",            sUn.gcVoids);
+    add("Un GC Conversions",      sUn.gcConversions);
+    add("Sales Deposit",          c.salesDeposit);
+    add("Net Sales", c.ns);
     add("Total Cash Deposit", c.tcd);
     shortages.forEach((sh,i) => { add(`Shortage ${i+1} Type`, sh.type); add(`Shortage ${i+1} Name`, sh.name); add(`Shortage ${i+1} Amt`, sh.amt); });
     add("Notes", notes);
@@ -391,39 +560,101 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
   };
 
   const exportIIF = () => {
-    // QuickBooks IIF format — General Journal entry
-    const d = dt.replace(/-/g, "/"); // MM/DD/YYYY format QB expects
-    const parts = d.split("/"); const qbDate = `${parts[1]}/${parts[2]}/${parts[0]}`; // YYYY-MM-DD → MM/DD/YYYY
-    const memo = `DSR ${loc} ${dt}`;
+    // QuickBooks IIF format — General Journal entries.
+    //
+    // A DSR day can span up to three deposit "buckets":
+    //   1. GC / FP deposit (sweepstakes cash)     — always possible
+    //   2. Skill deposit (Cardinal + Red Plum)    — always possible
+    //   3. Sales deposit from POS                 — split into two entries when both
+    //      Semnox (EP deposit) AND Union (Sales deposit) are populated, because accounting
+    //      wants one journal per physical deposit slip.
+    //
+    // Each entry starts with TRNS (debit to Undeposited Funds) and is balanced by SPL
+    // lines crediting the revenue/fee/shortage accounts. Each TRNS block must end with ENDTRNS.
+    const parts = dt.split("-"); // YYYY-MM-DD → MM/DD/YYYY
+    const qbDate = `${parts[1]}/${parts[2]}/${parts[0]}`;
     const lines = [];
     lines.push("!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tMEMO");
     lines.push("!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tAMOUNT\tMEMO");
     lines.push("!ENDTRNS");
-    // Main transaction line (total deposit to Undeposited Funds)
-    lines.push(`TRNS\tGENERAL JOURNAL\t${qbDate}\tUndeposited Funds\t${loc}\t${c.td.toFixed(2)}\t${memo}`);
-    // Split lines for each revenue/deposit category
-    if (c.agd !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tGC Deposit\t${loc}\t${(-c.agd).toFixed(2)}\tGC Deposit - ${loc}`);
-    if (skillDeposit !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tSkill Deposit\t${loc}\t${(-skillDeposit).toFixed(2)}\tSkill Deposit - ${loc}`);
-    if (c.tcd !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCash Deposit\t${loc}\t${(-c.tcd).toFixed(2)}\tCash Deposit - ${loc}`);
-    // Sweepstakes breakdown
-    if (c.ti !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tSweepstakes Points In\t${loc}\t${(-c.ti).toFixed(2)}\tTotal Points In`);
-    if (c.to !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tSweepstakes Prizes Out\t${loc}\t${c.to.toFixed(2)}\tTotal Prizes Out`);
-    // Credit cards
-    if (cc.tot !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCredit Card Receipts\t${loc}\t${(-cc.tot).toFixed(2)}\tGC CC Total`);
-    if (cc.fee !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCredit Card Fees\t${loc}\t${cc.fee.toFixed(2)}\tGC CC Fees`);
-    // Sales
-    if (s.bar !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tBar Sales\t${loc}\t${(-s.bar).toFixed(2)}\tBar Sales`);
-    if (s.kitchen !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tKitchen Sales\t${loc}\t${(-s.kitchen).toFixed(2)}\tKitchen Sales`);
-    if (s.gcSales !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tGift Cert Sales\t${loc}\t${(-s.gcSales).toFixed(2)}\tGift Cert Sales`);
-    if (s.retail !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRetail Sales\t${loc}\t${(-s.retail).toFixed(2)}\tRetail Sales`);
-    // EP
-    if (ep.total !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCOAMs Revenue\t${loc}\t${(-ep.total).toFixed(2)}\tCOAMs Total`);
-    // Skill vending
-    if (c.cxCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tCardinal Xpress Revenue\t${loc}\t${(-c.cxCabNet).toFixed(2)}\tCardinal Net`);
-    if (c.rpCabNet !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tRed Plum Revenue\t${loc}\t${(-c.rpCabNet).toFixed(2)}\tRed Plum Net`);
-    // Shortages
-    shortages.forEach(sh => { if (sh.amt !== 0) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages\t${sh.name||loc}\t${(-sh.amt).toFixed(2)}\t${sh.type} Shortage`); });
-    lines.push("ENDTRNS");
+
+    // Helper to emit one General Journal entry. splits is [{accnt, amount, memo}]
+    // where a positive `amount` is the debit side (cash deposit) and we insert that as TRNS;
+    // each split is written as a credit (negative) to its revenue account.
+    const writeEntry = (depositAcct, depositAmount, memo, splits) => {
+      if (!depositAmount && !splits.some(s => s.amount)) return;
+      lines.push(`TRNS\tGENERAL JOURNAL\t${qbDate}\t${depositAcct}\t${loc}\t${depositAmount.toFixed(2)}\t${memo}`);
+      splits.forEach(s => {
+        if (s.amount) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\t${s.accnt}\t${loc}\t${(-s.amount).toFixed(2)}\t${s.memo || memo}`);
+      });
+      lines.push("ENDTRNS");
+    };
+
+    // --- Entry 1: GC / FP deposit ---
+    writeEntry("Undeposited Funds", c.agd, `DSR GC/FP ${loc} ${dt}`, [
+      { accnt: "Sweepstakes Points In",  amount: c.ti,  memo: "Total Points In" },
+      { accnt: "Sweepstakes Prizes Out", amount: -c.to, memo: "Total Prizes Out (contra)" },
+      { accnt: "Credit Card Receipts",   amount: cc.tot, memo: "GC CC Total" },
+      { accnt: "Credit Card Fees",       amount: -cc.fee, memo: "GC CC Fees (contra)" },
+    ]);
+
+    // --- Entry 2: Skill deposit ---
+    writeEntry("Undeposited Funds", skillDeposit, `DSR Skill ${loc} ${dt}`, [
+      { accnt: "Cardinal Xpress Revenue", amount: c.cxCabNet, memo: "Cardinal Net" },
+      { accnt: "Red Plum Revenue",        amount: c.rpCabNet, memo: "Red Plum Net" },
+    ]);
+
+    // --- Entry 3: Semnox EP deposit (when Semnox POS is on) ---
+    if (posSemnox) {
+      writeEntry("Undeposited Funds", c.epDeposit, `DSR EP ${loc} ${dt}`, [
+        { accnt: "Easy Play Card Sales",     amount: sSem.epCard,            memo: "Easy Play Card" },
+        { accnt: "Easy Play Credits",        amount: sSem.arcadeCredits,     memo: "Easy Play Credits" },
+        { accnt: "Arcade Time Revenue",      amount: sSem.arcadeTime,        memo: "Arcade Time" },
+        { accnt: "Gift Certificate Sales",   amount: sSem.gcCertSales,       memo: "Gift Certificate Sales" },
+        { accnt: "Sales Comps",              amount: -sSem.comps,            memo: "Comps (contra)" },
+        { accnt: "Sales Discounts",          amount: -sSem.disc,             memo: "Discounts (contra)" },
+        { accnt: "Sales Tax Payable",        amount: sSem.taxes,             memo: "Taxes collected" },
+        { accnt: "Tips Payable",             amount: sSem.tips,              memo: "Tips collected" },
+        { accnt: "Credit Card Receipts",     amount: -sSem.cc,               memo: "Semnox CC (contra)" },
+        { accnt: "Credit Card Fees",         amount: sSem.ccFees,            memo: "Semnox CC Fees" },
+        { accnt: "Gift Certificate Redemptions", amount: sSem.gcCertRedemptions, memo: "GC Cert Redemptions" },
+        { accnt: "Gift Certificate Conversions", amount: -sSem.gcCertConversions, memo: "GC Cert Conversions (contra)" },
+      ]);
+    }
+
+    // --- Entry 4: Union Sales deposit (when Union POS is on) ---
+    if (posUnion) {
+      writeEntry("Undeposited Funds", c.salesDeposit, `DSR Sales ${loc} ${dt}`, [
+        { accnt: "Bar Sales",              amount: sUn.bar,           memo: "Bar Sales" },
+        { accnt: "Kitchen Sales",          amount: sUn.kitchen,       memo: "Kitchen Sales" },
+        { accnt: "Gift Card Activations",  amount: sUn.gcActivations, memo: "Gift Card Activations" },
+        { accnt: "Retail Sales",           amount: sUn.retail,        memo: "Retail Sales" },
+        { accnt: "Sales Comps",            amount: -sUn.comps,        memo: "Comps (contra)" },
+        { accnt: "Sales Discounts",        amount: -sUn.disc,         memo: "Discounts (contra)" },
+        { accnt: "Spills",                 amount: -sUn.spills,       memo: "Spills (contra)" },
+        { accnt: "Sales Tax Payable",      amount: sUn.taxes,         memo: "Taxes collected" },
+        { accnt: "Tips Payable",           amount: sUn.tips,          memo: "Tips collected" },
+        { accnt: "Credit Card Receipts",   amount: -sUn.cc,           memo: "Union CC (contra)" },
+        { accnt: "Bar Credit Cards",       amount: -sUn.barCC,        memo: "Bar CC (contra)" },
+        { accnt: "Non-Cash Adj Fees",      amount: sUn.nonCashFees,   memo: "Non-Cash Adj Fees" },
+        { accnt: "Recoveries",             amount: sUn.rec,           memo: "Recoveries" },
+        { accnt: "Gift Card Redemptions",  amount: sUn.gcRedemptions, memo: "GC Redemptions" },
+        { accnt: "Gift Card Voids",        amount: -sUn.gcVoids,      memo: "GC Voids (contra)" },
+        { accnt: "Gift Card Conversions",  amount: -sUn.gcConversions, memo: "GC Conversions (contra)" },
+      ]);
+    }
+
+    // --- Entry 5: Shortages (single entry with each employee as a split) ---
+    const hasShortages = shortages.some(sh => sh.amt);
+    if (hasShortages) {
+      const totalShort = shortages.reduce((t, sh) => t + (sh.amt || 0), 0);
+      lines.push(`TRNS\tGENERAL JOURNAL\t${qbDate}\tEmployee Shortages Receivable\t${loc}\t${totalShort.toFixed(2)}\tDSR Shortages ${loc} ${dt}`);
+      shortages.forEach(sh => {
+        if (sh.amt) lines.push(`SPL\tGENERAL JOURNAL\t${qbDate}\tPayroll Deductions\t${sh.name||loc}\t${(-sh.amt).toFixed(2)}\t${sh.type} Shortage - ${sh.name||""}`);
+      });
+      lines.push("ENDTRNS");
+    }
+
     const iif = lines.join("\r\n") + "\r\n";
     dl(new Blob([iif], { type: "application/octet-stream" }), `DSR_${dateSuffix}.iif`);
     setEmailPrompt("IIF");
@@ -528,39 +759,79 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     )}
 
     <div className="cards-grid">
-      {/* 1. Sales Detail (Union POS) */}
-      {posUnion && <div className="card-sales">
-        <Card title="Sales Detail (Union)" icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.tcd)}>
+      {/* 1a. Semnox Sales Detail — shown when the venue uses Semnox */}
+      {posSemnox && <div className="card-sales-sem">
+        <Card title={posUnion ? "Sales Detail — Semnox (Easy Play)" : "Sales Detail (Semnox)"} icon="🕹️" color="#9B6B9E" bg="#F0E6F1" badge={fmt(c.epDeposit)}>
           <div className="sales-cols" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
             <div>
               <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
-              <F label="COAMs CARD" value={s.epCard} onChange={v=>setS(p=>({...p,epCard:v}))}/>
-              <F label="COAMs CREDITS" value={s.epCredits} onChange={v=>setS(p=>({...p,epCredits:v}))}/>
-              <F label="Bar Sales" value={s.bar} onChange={v=>setS(p=>({...p,bar:v}))}/>
-              <F label="Kitchen Sales" value={s.kitchen} onChange={v=>setS(p=>({...p,kitchen:v}))}/>
-              <F label="Gift Cert Sales" value={s.gcSales} onChange={v=>setS(p=>({...p,gcSales:v}))}/>
-              <F label="Retail Sales" value={s.retail} onChange={v=>setS(p=>({...p,retail:v}))}/>
+              <F label="Easy Play — Card"       value={sSem.epCard}         onChange={v=>setSSem(p=>({...p,epCard:v}))}/>
+              <F label="Easy Play — Credits"    value={sSem.arcadeCredits}  onChange={v=>setSSem(p=>({...p,arcadeCredits:v}))}/>
+              <F label="Arcade Time"            value={sSem.arcadeTime}     onChange={v=>setSSem(p=>({...p,arcadeTime:v}))}/>
+              <F label="Gift Certificate Sales" value={sSem.gcCertSales}    onChange={v=>setSSem(p=>({...p,gcCertSales:v}))}/>
               <div style={{borderTop:"1px dashed #C5B5A8",margin:"4px 0 2px"}}/>
-              <F label="Comps (-)" value={s.comps} onChange={v=>setS(p=>({...p,comps:v}))}/>
-              <F label="Discounts (-)" value={s.disc} onChange={v=>setS(p=>({...p,disc:v}))}/>
-              <F label="Spills (-)" value={s.spills} onChange={v=>setS(p=>({...p,spills:v}))}/>
+              <F label="Comps (-)"     value={sSem.comps} onChange={v=>setSSem(p=>({...p,comps:v}))}/>
+              <F label="Discounts (-)" value={sSem.disc}  onChange={v=>setSSem(p=>({...p,disc:v}))}/>
               <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
-              <F label="NET SALES" value={c.ns.toFixed(2)} disabled highlight emphasize/>
+              <F label="SEMNOX NET SALES" value={c.semNetSales.toFixed(2)} disabled highlight emphasize/>
             </div>
             <div>
               <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Payments and Adjustments</div>
-              <F label="Total Credit Cards" value={s.cc} onChange={v=>setS(p=>({...p,cc:v}))}/>
-              <F label="Bar Credit Cards" value={s.barCC} onChange={v=>setS(p=>({...p,barCC:v}))}/>
-              <F label="Non-Cash Adj Fees" value={s.nonCashFees} onChange={v=>setS(p=>({...p,nonCashFees:v}))}/>
-              <F label="Total Taxes" value={s.taxes} onChange={v=>setS(p=>({...p,taxes:v}))}/>
-              <F label="Total Tips" value={s.tips} onChange={v=>setS(p=>({...p,tips:v}))}/>
-              <F label="Recoveries" value={s.rec} onChange={v=>setS(p=>({...p,rec:v}))}/>
-              <F label="GC Redemptions" value={s.gcRedemptions} onChange={v=>setS(p=>({...p,gcRedemptions:v}))}/>
-              <F label="GC Conversions" value={s.gcConversions} onChange={v=>setS(p=>({...p,gcConversions:v}))}/>
+              <F label="Credit Cards"         value={sSem.cc}     onChange={v=>setSSem(p=>({...p,cc:v}))}/>
+              <F label="CC Fees"              value={sSem.ccFees} onChange={v=>setSSem(p=>({...p,ccFees:v}))}/>
+              <F label="Taxes"                value={sSem.taxes}  onChange={v=>setSSem(p=>({...p,taxes:v}))}/>
+              <F label="Tips"                 value={sSem.tips}   onChange={v=>setSSem(p=>({...p,tips:v}))}/>
+              <F label="Gift Cert Redemptions" value={sSem.gcCertRedemptions} onChange={v=>setSSem(p=>({...p,gcCertRedemptions:v}))}/>
+              <F label="Gift Cert Conversions" value={sSem.gcCertConversions} onChange={v=>setSSem(p=>({...p,gcCertConversions:v}))}/>
               <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
-              <F label="TOTAL CASH DEPOSIT" value={c.tcd.toFixed(2)} disabled highlight emphasize/>
+              <F label="Deposit Hint" value={c.semDepositHint.toFixed(2)} disabled/>
+              <F label={posUnion ? "EP DEPOSIT" : "CASH DEPOSIT"} value={sDep.epDeposit} onChange={v=>setSDep(p=>({...p,epDeposit:v}))} emphasize/>
             </div>
           </div>
+        </Card>
+      </div>}
+
+      {/* 1b. Union Sales Detail — shown when the venue uses Union */}
+      {posUnion && <div className="card-sales-un">
+        <Card title={posSemnox ? "Sales Detail — Union (Bar / Kitchen / Retail)" : "Sales Detail (Union)"} icon="💰" color="#F5B88B" bg="#FFF4EC" badge={fmt(c.salesDeposit)}>
+          <div className="sales-cols" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+            <div>
+              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Revenue In</div>
+              <F label="Bar Sales"              value={sUn.bar}           onChange={v=>setSUn(p=>({...p,bar:v}))}/>
+              <F label="Kitchen Sales"          value={sUn.kitchen}       onChange={v=>setSUn(p=>({...p,kitchen:v}))}/>
+              <F label="Gift Card Activations"  value={sUn.gcActivations} onChange={v=>setSUn(p=>({...p,gcActivations:v}))}/>
+              <F label="Retail Sales"           value={sUn.retail}        onChange={v=>setSUn(p=>({...p,retail:v}))}/>
+              <div style={{borderTop:"1px dashed #C5B5A8",margin:"4px 0 2px"}}/>
+              <F label="Comps (-)"     value={sUn.comps}  onChange={v=>setSUn(p=>({...p,comps:v}))}/>
+              <F label="Discounts (-)" value={sUn.disc}   onChange={v=>setSUn(p=>({...p,disc:v}))}/>
+              <F label="Spills (-)"    value={sUn.spills} onChange={v=>setSUn(p=>({...p,spills:v}))}/>
+              <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
+              <F label="UNION NET SALES" value={c.unNetSales.toFixed(2)} disabled highlight emphasize/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:"#3D2E1F",marginBottom:3,fontWeight:800,letterSpacing:1,textTransform:"uppercase"}}>Payments and Adjustments</div>
+              <F label="Total Credit Cards" value={sUn.cc}          onChange={v=>setSUn(p=>({...p,cc:v}))}/>
+              <F label="Bar Credit Cards"   value={sUn.barCC}       onChange={v=>setSUn(p=>({...p,barCC:v}))}/>
+              <F label="Non-Cash Adj Fees"  value={sUn.nonCashFees} onChange={v=>setSUn(p=>({...p,nonCashFees:v}))}/>
+              <F label="Total Taxes"        value={sUn.taxes}       onChange={v=>setSUn(p=>({...p,taxes:v}))}/>
+              <F label="Total Tips"         value={sUn.tips}        onChange={v=>setSUn(p=>({...p,tips:v}))}/>
+              <F label="Recoveries"         value={sUn.rec}         onChange={v=>setSUn(p=>({...p,rec:v}))}/>
+              <F label="GC Redemptions"     value={sUn.gcRedemptions} onChange={v=>setSUn(p=>({...p,gcRedemptions:v}))}/>
+              <F label="GC Voids"           value={sUn.gcVoids}     onChange={v=>setSUn(p=>({...p,gcVoids:v}))}/>
+              <F label="GC Conversions"     value={sUn.gcConversions} onChange={v=>setSUn(p=>({...p,gcConversions:v}))}/>
+              <div style={{borderTop:"2px solid #000",margin:"4px 0",paddingTop:2}}/>
+              <F label="Deposit Hint" value={c.unDepositHint.toFixed(2)} disabled/>
+              <F label="SALES DEPOSIT" value={sDep.salesDeposit} onChange={v=>setSDep(p=>({...p,salesDeposit:v}))} emphasize/>
+            </div>
+          </div>
+        </Card>
+      </div>}
+
+      {/* 1c. Minimal Cash Deposit card — shown only for skill-only venues (neither Semnox nor Union) */}
+      {!posSemnox && !posUnion && <div className="card-sales-skill">
+        <Card title="Cash Deposit" icon="💵" color="#F5B88B" bg="#FFF4EC" badge={fmt(sDep.tcd)}>
+          <div style={{fontSize:11,color:"#6B5A4E",marginBottom:6}}>Skill-only venue — no bar/kitchen/arcade sales. Enter the cash deposit amount directly (if any).</div>
+          <F label="CASH DEPOSIT" value={sDep.tcd} onChange={v=>setSDep(p=>({...p,tcd:v}))} emphasize/>
         </Card>
       </div>}
 
@@ -718,7 +989,7 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
         <Card title="Employee Shortages" icon="⚠️" color="#F4A5B0" bg="#FCEFF1">
           {shortages.map((sh, i) => <div key={i} style={{display:"grid",gridTemplateColumns:"60px 1fr 90px 24px",gap:5,alignItems:"center",marginBottom:4}}>
             <select value={sh.type} onChange={e=>uShort(i,"type",e.target.value)} style={{padding:"4px 2px",border:"2px solid #B8A99E",borderRadius:6,fontSize:12,fontWeight:800,color:"#3D2E1F",background:"#FFF",cursor:"pointer"}}>
-              <option>GC</option><option>Skill</option><option>Sales</option>
+              {shortageTypes.map(t => <option key={t}>{t}</option>)}
             </select>
             <input value={sh.name} onChange={e=>uShort(i,"name",e.target.value)} placeholder="Employee name" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:500}}/>
             <input type="number" step="0.01" value={sh.amt||""} onChange={e=>uShort(i,"amt",+e.target.value||0)} placeholder="$" style={{padding:"5px 8px",border:"2px solid #B8A99E",borderRadius:6,fontSize:13,fontFamily:"'JetBrains Mono',monospace",textAlign:"right",boxSizing:"border-box",background:"#FFF",color:"#1A1A1A",fontWeight:600}}/>
@@ -744,7 +1015,10 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>PRIZES OUT</div><div style={{fontSize:17,fontWeight:900,color:"#FFB5A0"}}>{fmt(c.to)}</div></div>
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>GC DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.agd)}</div></div>
         <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>SKILL DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(skillDeposit)}</div></div>
-        <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>CASH DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.tcd)}</div></div>
+        {posSemnox && posUnion ? <>
+          <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>EP DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.epDeposit)}</div></div>
+          <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>SALES DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.salesDeposit)}</div></div>
+        </> : <div><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>CASH DEPOSIT</div><div style={{fontSize:15,fontWeight:900,color:"#B8D4A8"}}>{fmt(c.tcd)}</div></div>}
         <div style={{borderLeft:"2px solid #FAD6A5",paddingLeft:12}}><div style={{fontSize:9,color:"#FAD6A5",letterSpacing:1,fontWeight:700}}>TOTAL DEPOSIT</div><div style={{fontSize:22,fontWeight:900,color:"#FCE8C8"}}>{fmt(c.td)}</div></div>
       </div>
     </div>
