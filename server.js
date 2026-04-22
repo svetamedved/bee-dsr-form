@@ -15,6 +15,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import multer from 'multer';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 dotenv.config();
 
@@ -787,41 +788,69 @@ Respond with JSON only.`,
 const anthropicClient = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   : null;
+const geminiClient = process.env.GEMINI_API_KEY
+  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+  : null;
 
 const imageUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 12 * 1024 * 1024 }, // 12 MB max phone photo
 });
 
-async function runClaudeVisionOCR(imageBytes, mimeType, reportType) {
-  if (!anthropicClient) throw new Error('ANTHROPIC_API_KEY not configured');
+// Strip markdown fences and pull the first JSON object from a model response.
+function extractJson(raw) {
+  const cleaned = String(raw || '')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```\s*$/, '')
+    .trim();
+  try { return JSON.parse(cleaned); } catch { /* fall through */ }
+  const m = cleaned.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('model did not return JSON');
+  return JSON.parse(m[0]);
+}
+
+async function runGeminiVisionOCR(imageBytes, mimeType, reportType) {
   const spec = REPORT_TYPES[reportType];
   if (!spec) throw new Error('Unknown report_type');
-  const base64 = imageBytes.toString('base64');
+  const model = geminiClient.getGenerativeModel({
+    model: process.env.GEMINI_OCR_MODEL || 'gemini-2.0-flash',
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+    },
+  });
+  const resp = await model.generateContent([
+    { inlineData: { data: imageBytes.toString('base64'), mimeType } },
+    { text: `${spec.prompt}\n\nReturn ONLY a JSON object, no prose, no markdown fences.` },
+  ]);
+  const raw = resp.response.text();
+  return { raw, parsed: extractJson(raw) };
+}
+
+async function runClaudeVisionOCR(imageBytes, mimeType, reportType) {
+  const spec = REPORT_TYPES[reportType];
+  if (!spec) throw new Error('Unknown report_type');
   const msg = await anthropicClient.messages.create({
     model: process.env.ANTHROPIC_OCR_MODEL || 'claude-sonnet-4-6',
     max_tokens: 1500,
     messages: [{
       role: 'user',
       content: [
-        { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } },
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBytes.toString('base64') } },
         { type: 'text', text: `${spec.prompt}\n\nReturn ONLY a JSON object, no prose, no markdown fences.` },
       ],
     }],
   });
   const raw = (msg.content || []).map(b => b.type === 'text' ? b.text : '').join('').trim();
-  // strip ```json fences if the model adds them anyway
-  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    // fall back: find first {...} block
-    const m = cleaned.match(/\{[\s\S]*\}/);
-    if (!m) throw new Error('model did not return JSON');
-    parsed = JSON.parse(m[0]);
-  }
-  return { raw, parsed };
+  return { raw, parsed: extractJson(raw) };
+}
+
+// Pick whichever backend is configured. Gemini preferred (free tier),
+// Anthropic as fallback. Throws a helpful error if neither is set.
+async function runOCR(imageBytes, mimeType, reportType) {
+  if (geminiClient)    return runGeminiVisionOCR(imageBytes, mimeType, reportType);
+  if (anthropicClient) return runClaudeVisionOCR(imageBytes, mimeType, reportType);
+  throw new Error('No OCR backend configured. Set GEMINI_API_KEY (free) or ANTHROPIC_API_KEY on the server.');
 }
 
 // Upload one photo. Runs OCR inline, returns parsed JSON + image id.
@@ -858,7 +887,7 @@ app.post('/api/images', authRequired, imageUpload.single('image'), async (req, r
 
     // Inline OCR
     try {
-      const { raw, parsed } = await runClaudeVisionOCR(
+      const { raw, parsed } = await runOCR(
         req.file.buffer, req.file.mimetype, report_type
       );
       await pool.execute(
@@ -980,7 +1009,7 @@ app.post('/api/images/:id/reparse', authRequired, async (req, res) => {
     }
     await pool.execute("UPDATE submission_images SET ocr_status='processing' WHERE id=?", [id]);
     try {
-      const { raw, parsed } = await runClaudeVisionOCR(row.image_bytes, row.mime_type, row.report_type);
+      const { raw, parsed } = await runOCR(row.image_bytes, row.mime_type, row.report_type);
       await pool.execute(
         "UPDATE submission_images SET ocr_status='parsed', ocr_raw=?, parsed_json=?, ocr_error=NULL WHERE id=?",
         [raw, JSON.stringify(parsed), id]
