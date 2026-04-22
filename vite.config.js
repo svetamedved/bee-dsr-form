@@ -11,8 +11,9 @@ export default defineConfig({
       output: {
         // Split jspdf into its own chunk so it's cached separately from app
         // code and only re-downloaded when jspdf itself changes.
-        manualChunks: {
-          jspdf: ['jspdf'],
+        // Vite 8 uses Rolldown, which requires manualChunks as a function.
+        manualChunks: (id) => {
+          if (id.includes('node_modules/jspdf')) return 'jspdf';
         },
       },
     },
