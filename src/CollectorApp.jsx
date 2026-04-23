@@ -7,6 +7,7 @@
 // dashboard routes to a placeholder so the user flow can be validated.
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, clearToken } from './auth.js';
+import CollectionForm from './CollectionForm.jsx';
 
 function fmtDate(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
 function StatusBadge({ status }) {
@@ -50,7 +51,12 @@ export default function CollectorApp({ user, onLogout }) {
   useEffect(() => { load(); }, [load]);
 
   if (active) {
-    return <CollectionPlaceholder venue={active} user={user} onBack={() => { setActive(null); load(); }}/>;
+    return <CollectionForm
+      venue={active}
+      user={user}
+      onDone={() => { setActive(null); load(); }}
+      onCancel={() => setActive(null)}
+    />;
   }
 
   return (

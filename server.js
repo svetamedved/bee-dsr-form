@@ -770,6 +770,210 @@ app.get('/api/collections', authRequired, async (req, res) => {
   }
 });
 
+// Collector submits a new collection. Collectors are restricted to venues in
+// their user_venues join; admins can submit for any location. If a collection
+// for (location, date) already exists and is pending/rejected, we overwrite it
+// (same pattern as submissions). Approved collections are locked — admin has
+// to un-approve first.
+app.post('/api/collections', authRequired, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { location_id, report_date, notes, split_override, payload } = body;
+    if (!location_id) return res.status(400).json({ error: 'location_id required' });
+    if (!report_date)  return res.status(400).json({ error: 'report_date required' });
+    if (!payload || typeof payload !== 'object') return res.status(400).json({ error: 'payload required' });
+
+    // Collectors must be assigned to this venue. Admin bypasses the check.
+    if (req.user.role === 'collector') {
+      const [[row]] = await pool.query(
+        'SELECT 1 FROM user_venues WHERE user_id=? AND location_id=? LIMIT 1',
+        [req.user.id, location_id]
+      );
+      if (!row) return res.status(403).json({ error: 'Not assigned to this venue' });
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const storedPayload = {
+      ...payload,
+      notes: notes || payload.notes || '',
+      split_override: split_override || null,
+    };
+
+    const [existing] = await pool.execute(
+      'SELECT id, status FROM collections WHERE location_id=? AND report_date=?',
+      [location_id, report_date]
+    );
+    if (existing.length) {
+      const c = existing[0];
+      if (c.status === 'approved') {
+        return res.status(409).json({ error: 'Already approved; contact admin' });
+      }
+      await pool.execute(
+        `UPDATE collections
+            SET user_id=?, status='pending', payload=?, admin_notes=NULL,
+                reviewed_at=NULL, reviewed_by=NULL, submitted_at=NOW()
+          WHERE id=?`,
+        [req.user.id, JSON.stringify(storedPayload), c.id]
+      );
+      return res.json({ id: c.id, status: 'pending', resubmitted: true });
+    }
+
+    const [r] = await pool.execute(
+      `INSERT INTO collections (location_id, user_id, report_date, status, payload)
+       VALUES (?, ?, ?, 'pending', ?)`,
+      [location_id, req.user.id, report_date, JSON.stringify(storedPayload)]
+    );
+    res.json({ id: r.insertId, status: 'pending' });
+  } catch (e) {
+    console.error('collections create', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Prior-tranche state for the big_easy waterfall. Given a venue and a month,
+// sums up to_t1 / to_t2 across all pending+approved collections that month so
+// the next collection form can auto-populate "prior paid" without the
+// collector having to track it by hand.
+//
+// Rule: each calendar month is a clean slate — on the 1st, prior = 0 even if
+// last month's tranches weren't fully paid (any unpaid balance drops).
+// Query params:
+//   location_id (required)
+//   month=YYYY-MM (required) — e.g. 2026-04
+// Collectors are restricted to venues in their user_venues; admins see all.
+app.get('/api/collections/prior', authRequired, async (req, res) => {
+  try {
+    const locationId = req.query.location_id;
+    const month = String(req.query.month || '');
+    if (!locationId) return res.status(400).json({ error: 'location_id required' });
+    if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'month must be YYYY-MM' });
+
+    if (req.user.role === 'collector') {
+      const [[row]] = await pool.query(
+        'SELECT 1 FROM user_venues WHERE user_id=? AND location_id=? LIMIT 1',
+        [req.user.id, locationId]
+      );
+      if (!row) return res.status(403).json({ error: 'Not assigned to this venue' });
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const monthStart = `${month}-01`;
+    const [y, m] = month.split('-').map(Number);
+    const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+
+    const [rows] = await pool.execute(
+      `SELECT id, report_date, status, payload
+         FROM collections
+        WHERE location_id = ?
+          AND report_date >= ?
+          AND report_date <  ?
+          AND status IN ('pending','approved')
+        ORDER BY report_date ASC, submitted_at ASC`,
+      [locationId, monthStart, nextMonth]
+    );
+
+    let t1 = 0, t2 = 0;
+    const summary = [];
+    for (const r of rows) {
+      const p = typeof r.payload === 'string' ? JSON.parse(r.payload || '{}') : (r.payload || {});
+      const w = p.waterfall || null;
+      const toT1 = w ? Number(w.to_t1) || 0 : 0;
+      const toT2 = w ? Number(w.to_t2) || 0 : 0;
+      t1 += toT1;
+      t2 += toT2;
+      summary.push({
+        id: r.id,
+        report_date: r.report_date,
+        status: r.status,
+        to_t1: toT1,
+        to_t2: toT2,
+      });
+    }
+    // Cap at the tranche ceiling (defensive — shouldn't happen if submits used
+    // the same waterfall math, but guards against bad payloads).
+    t1 = Math.min(t1, 2500);
+    t2 = Math.min(t2, 2500);
+    res.json({
+      location_id: Number(locationId),
+      month,
+      t1_paid: t1,
+      t2_paid: t2,
+      t1_remaining: Math.max(0, 2500 - t1),
+      t2_remaining: Math.max(0, 2500 - t2),
+      collections: summary,
+    });
+  } catch (e) {
+    console.error('collections prior', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Single collection fetch with full payload. Collectors can only see their
+// own; admins can see any.
+app.get('/api/collections/:id', authRequired, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.*, l.location_name, l.collection_split_type, l.split_percentage,
+              l.cabinet_config_json, u.email AS submitter_email, u.name AS submitter_name
+         FROM collections c
+         LEFT JOIN locations l ON l.location_id = c.location_id
+         LEFT JOIN users u ON u.id = c.user_id
+        WHERE c.id = ?`,
+      [req.params.id]
+    );
+    const c = rows[0];
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    if (req.user.role === 'collector' && c.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    c.payload = typeof c.payload === 'string' ? JSON.parse(c.payload) : c.payload;
+    res.json(c);
+  } catch (e) {
+    console.error('collections get', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Admin: approve a collection. IIF export build is stubbed — the proper
+// QuickBooks chart-of-accounts mapping for third-party venues is a separate
+// piece of work, so for now we stamp the collection as approved and hold the
+// IIF file slot open (iif_content stays NULL until an explicit export runs).
+app.post('/api/admin/collections/:id/approve', authRequired, adminRequired, async (req, res) => {
+  try {
+    const [r] = await pool.execute(
+      `UPDATE collections
+          SET status='approved', reviewed_at=NOW(), reviewed_by=?, admin_notes=?
+        WHERE id=? AND status <> 'approved'`,
+      [req.user.id, req.body?.notes || null, req.params.id]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not found or already approved' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('approve collection', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/collections/:id/reject', authRequired, adminRequired, async (req, res) => {
+  try {
+    const notes = (req.body?.notes || '').trim();
+    if (!notes) return res.status(400).json({ error: 'Rejection note is required' });
+    const [r] = await pool.execute(
+      `UPDATE collections
+          SET status='rejected', reviewed_at=NOW(), reviewed_by=?, admin_notes=?
+        WHERE id=? AND status='pending'`,
+      [req.user.id, notes, req.params.id]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not found or not pending' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('reject collection', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // =====================================================================
 // SUBMISSIONS — venue side
 // =====================================================================
