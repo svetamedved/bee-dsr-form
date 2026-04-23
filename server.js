@@ -386,16 +386,21 @@ app.get('/api/locations', authRequired, async (req, res) => {
     where = ' WHERE location_type = ?';
     params.push(type);
   }
-  const [rows] = await pool.execute(
-    `SELECT location_id AS id, location_name AS name, location_status,
-            location_type, collection_split_type, split_percentage,
-            split_config_json, cabinet_count, cabinet_config_json,
-            address_line1, city, state, zip_code,
-            contact_name, contact_phone, contact_email, notes
-     FROM locations${where} ORDER BY location_name`,
-    params
-  );
-  res.json(rows);
+  try {
+    const [rows] = await pool.query(
+      `SELECT location_id AS id, location_name AS name, location_status,
+              location_type, collection_split_type, split_percentage,
+              split_config_json, cabinet_count, cabinet_config_json,
+              address_line1, city, state, zip_code,
+              contact_name, contact_phone, contact_email, notes
+       FROM locations${where} ORDER BY location_name`,
+      params
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('GET /api/locations failed:', e.code, e.message, '| sqlState:', e.sqlState);
+    res.status(500).json({ error: e.code || 'query_failed', message: e.message });
+  }
 });
 
 // Collector's view: the venues admin has assigned to them. Returns the same
@@ -1377,4 +1382,10 @@ app.get(/^\/(?!api).*/, (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
+// Express 5 global error handler — catches any unhandled throw from any route
+app.use((err, req, res, _next) => {
+  console.error(`✗ ${req.method} ${req.originalUrl}:`, err.code || '', err.message);
+  res.status(500).json({ error: err.code || 'internal', message: err.message });
+});
+
 app.listen(PORT, () => console.log(`DSR Platform running on port ${PORT}`));

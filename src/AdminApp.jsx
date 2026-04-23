@@ -473,14 +473,23 @@ function VenueManager() {
     };
     try {
       if (e.id) {
-        await api(`/api/admin/venues/${e.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+        const updated = await api(`/api/admin/venues/${e.id}`, { method: 'PATCH', body: JSON.stringify(body) });
         setMsg(`Saved ${body.location_name}`);
+        // Reload the table in the background and keep the modal open so the
+        // user can see the in-modal "Saved" toast. They close explicitly via
+        // the X button or Close button.
+        load();
+        return { ok: true, action: 'saved' };
       } else {
-        await api('/api/admin/venues', { method: 'POST', body: JSON.stringify(body) });
+        const created = await api('/api/admin/venues', { method: 'POST', body: JSON.stringify(body) });
         setMsg(`Created ${body.location_name}`);
+        // For newly-created venues we still want to close so the next action
+        // isn't ambiguous (there's no "existing-venue" assignable-collector
+        // UI until the row has an id).
+        setEditing(null); load();
+        return { ok: true, action: 'created' };
       }
-      setEditing(null); load();
-    } catch (ex) { setErr(ex.message); }
+    } catch (ex) { setErr(ex.message); return { ok: false, error: ex.message }; }
   };
 
   const del = async (v) => {
@@ -563,6 +572,9 @@ function VenueEditor({ venue: e, onChange, onSave, onCancel, onReload }) {
   const [collectors, setCollectors] = useState([]);
   const [assigned, setAssigned] = useState([]);
   const [pickUser, setPickUser] = useState('');
+  // toast: inline confirmation shown in the modal header after a save/assign/
+  // unassign succeeds. { text, kind } — kind drives color ('ok' | 'err').
+  const [toast, setToast] = useState(null);
   const isThird = e.location_type === 'third_party';
   const isExisting = !!e.id;
 
@@ -574,21 +586,42 @@ function VenueEditor({ venue: e, onChange, onSave, onCancel, onReload }) {
     ]).then(([a, c]) => { setAssigned(a); setCollectors(c); }).catch(() => {});
   }, [e.id, isExisting, isThird]);
 
+  // Show a toast, auto-dismiss after 2.5s. Replacing an existing toast resets
+  // the timer so rapid actions still get clear feedback.
+  const showToast = (text, kind = 'ok') => {
+    setToast({ text, kind });
+    if (showToast._t) clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => setToast(null), 2500);
+  };
+
   const assignableCollectors = collectors.filter(c => c.active && !assigned.some(a => a.id === c.id));
 
   const assign = async () => {
     if (!pickUser) return;
+    const picked = collectors.find(c => c.id === parseInt(pickUser));
     try {
       await api(`/api/admin/venues/${e.id}/collectors`, { method: 'POST', body: JSON.stringify({ user_id: parseInt(pickUser) }) });
       const [a] = await Promise.all([api(`/api/admin/venues/${e.id}/collectors`)]);
       setAssigned(a); setPickUser('');
-    } catch {}
+      showToast(`✓ Assigned ${picked?.name || picked?.email || 'collector'}`);
+    } catch (ex) { showToast(ex.message || 'Assignment failed', 'err'); }
   };
   const unassign = async (userId) => {
+    const removing = assigned.find(x => x.id === userId);
     try {
       await api(`/api/admin/venues/${e.id}/collectors/${userId}`, { method: 'DELETE' });
       setAssigned(prev => prev.filter(x => x.id !== userId));
-    } catch {}
+      showToast(`✓ Removed ${removing?.name || removing?.email || 'collector'}`);
+    } catch (ex) { showToast(ex.message || 'Remove failed', 'err'); }
+  };
+
+  // Wrap onSave so we can show a toast in the modal. Parent's save() returns
+  // { ok, action } on update (modal stays open) or closes the modal itself
+  // on create (unmount happens, no toast needed).
+  const handleSave = async () => {
+    const result = await Promise.resolve(onSave());
+    if (result && result.ok === false) showToast(result.error || 'Save failed', 'err');
+    else if (result && result.action === 'saved') showToast('✓ Changes saved');
   };
 
   const addCabinet = () => onChange({ ...e, cabinet_config: [...(e.cabinet_config || []), { label: String((e.cabinet_config?.length || 0) + 1), type: 'redplum' }] });
@@ -597,8 +630,31 @@ function VenueEditor({ venue: e, onChange, onSave, onCancel, onReload }) {
 
   return (
     <div onClick={onCancel} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:1000,padding:20,overflowY:'auto'}}>
-      <div onClick={ev => ev.stopPropagation()} style={{...card,maxWidth:680,width:'100%',marginTop:20,marginBottom:20}}>
-        <div style={cardHeader}>{isExisting ? `Edit venue: ${e.location_name}` : 'New venue'}</div>
+      <div onClick={ev => ev.stopPropagation()} style={{...card,maxWidth:680,width:'100%',marginTop:20,marginBottom:20,position:'relative'}}>
+        <div style={{...cardHeader,display:'flex',alignItems:'center',paddingRight:44}}>
+          <span style={{flex:1}}>{isExisting ? `Edit venue: ${e.location_name}` : 'New venue'}</span>
+        </div>
+        {/* Circular X close button in the top-right corner. */}
+        <button
+          onClick={onCancel}
+          aria-label="Close"
+          title="Close"
+          style={{
+            position:'absolute',top:10,right:10,width:28,height:28,
+            borderRadius:'50%',border:'2px solid #000',background:'#FAD6A5',
+            cursor:'pointer',fontSize:14,fontWeight:900,lineHeight:1,
+            display:'flex',alignItems:'center',justifyContent:'center',color:'#000',padding:0,
+          }}
+        >×</button>
+        {/* Inline toast — appears below the header after a successful save/assign. */}
+        {toast && (
+          <div style={{
+            padding:'8px 16px',fontSize:12,fontWeight:700,
+            color: toast.kind === 'err' ? '#A03030' : '#4A7A2D',
+            background: toast.kind === 'err' ? '#FDEDED' : '#EAF5DC',
+            borderBottom:'2px solid ' + (toast.kind === 'err' ? '#A03030' : '#4A7A2D'),
+          }}>{toast.text}</div>
+        )}
         <div style={{padding:16,display:'flex',flexDirection:'column',gap:8}}>
           <L>Name</L>
           <input style={inp} value={e.location_name} onChange={ev => onChange({ ...e, location_name: ev.target.value })}/>
@@ -695,10 +751,10 @@ function VenueEditor({ venue: e, onChange, onSave, onCancel, onReload }) {
           <textarea style={{...inp,minHeight:60,fontFamily:'inherit'}} value={e.notes || ''} onChange={ev => onChange({ ...e, notes: ev.target.value })}/>
 
           <div style={{display:'flex',gap:8,marginTop:12}}>
-            <button onClick={onSave} style={{...linkBtn,flex:1,padding:'8px 14px',background:'#000',color:'#FAD6A5',borderColor:'#000'}}>
+            <button onClick={handleSave} style={{...linkBtn,flex:1,padding:'8px 14px',background:'#000',color:'#FAD6A5',borderColor:'#000'}}>
               {isExisting ? 'Save changes' : 'Create venue'}
             </button>
-            <button onClick={onCancel} style={{...linkBtn,padding:'8px 14px'}}>Cancel</button>
+            <button onClick={onCancel} style={{...linkBtn,padding:'8px 14px'}}>Close</button>
           </div>
         </div>
       </div>
