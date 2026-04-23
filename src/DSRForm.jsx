@@ -503,6 +503,11 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
     if (!loc) { alert("Select a location"); return; }
     if (!mgr.trim()) { alert("Enter the manager's name before submitting."); return; }
     if (readOnly) { alert("This submission is already approved and cannot be changed."); return; }
+    const confirmMsg =
+      `Submit DSR for ${loc} on ${dt}?\n\n` +
+      `Manager: ${mgr}\n\n` +
+      `Once submitted it will go to the admin for approval. You can still re-submit if it gets rejected.`;
+    if (!window.confirm(confirmMsg)) return;
     setSubmitError("");
     // Pack the entire form state. Computed totals are included so the admin
     // can see exactly what the venue saw, and the server builds the IIF from this.
@@ -612,9 +617,11 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       const data = await api("/api/submissions", { method: "POST", body: JSON.stringify(payload) });
       setOk(true);
       setTimeout(() => setOk(false), 3000);
+      window.alert(`✓ DSR submitted for ${loc} (${dt}).\n\nIt is now pending admin approval.`);
       if (onSubmitted) onSubmitted(data);
     } catch (err) {
       setSubmitError(err.message || "Submit failed");
+      window.alert(`Submit failed: ${err.message || 'unknown error'}`);
     }
   };
 

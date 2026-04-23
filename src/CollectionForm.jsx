@@ -303,6 +303,14 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
     if (overrideOn && !overrideReason.trim()) {
       showToast('Split override needs a reason', 'err'); return;
     }
+    const confirmMsg =
+      `Submit this collection for ${venue.name}?\n\n` +
+      `Date: ${reportDate}\n` +
+      `Net cash: ${money(derived.net)}\n` +
+      `BE share: ${money(derived.beTotal)}\n` +
+      `Location share: ${money(derived.locationTotal)}\n\n` +
+      `Once submitted it will go to the admin for review.`;
+    if (!window.confirm(confirmMsg)) return;
     setSubmitting(true);
     try {
       const body = {
@@ -352,8 +360,8 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
         },
       };
       await api('/api/collections', { method: 'POST', body: JSON.stringify(body) });
-      showToast('✓ Collection submitted for review');
-      setTimeout(() => onDone && onDone(), 700);
+      window.alert(`✓ Collection submitted for ${venue.name} (${reportDate}).\n\nIt is now pending admin approval.`);
+      if (onDone) onDone();
     } catch (ex) {
       showToast('Submit failed: ' + ex.message, 'err');
     } finally {

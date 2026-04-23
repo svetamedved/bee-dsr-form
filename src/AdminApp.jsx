@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import DSRForm from './DSRForm.jsx';
 import { api, apiBlob, downloadBlob, clearToken } from './auth.js';
 
-const TABS = ['Pending', 'All submissions', 'Users', 'Venues', 'Exports'];
+const TABS = ['Pending', 'All submissions', 'Collections', 'Users', 'Venues', 'Exports'];
 
 function fmtDate(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
 function StatusBadge({ status }) {
@@ -20,7 +20,34 @@ function StatusBadge({ status }) {
 export default function AdminApp({ user, onLogout }) {
   const [tab, setTab] = useState('Pending');
   const [reviewing, setReviewing] = useState(null); // submission being reviewed
+  const [reviewingCollection, setReviewingCollection] = useState(null); // collection being reviewed
   const [refresh, setRefresh] = useState(0);
+  // Pending counts — used to decorate tab labels so admin can tell at a glance
+  // how many DSR submissions vs. collections are waiting for review (they live
+  // in different queues / tables).
+  const [pendingCounts, setPendingCounts] = useState({ submissions: 0, collections: 0 });
+  useEffect(() => {
+    Promise.all([
+      api('/api/submissions?status=pending').catch(() => []),
+      api('/api/collections?status=pending').catch(() => []),
+    ]).then(([subs, cols]) => {
+      setPendingCounts({
+        submissions: Array.isArray(subs) ? subs.length : 0,
+        collections: Array.isArray(cols) ? cols.length : 0,
+      });
+    });
+  }, [refresh]);
+
+  const tabBadge = (tabName) => {
+    const n = tabName === 'Pending' ? pendingCounts.submissions
+            : tabName === 'Collections' ? pendingCounts.collections
+            : 0;
+    if (!n) return null;
+    return (
+      <span style={{marginLeft:6,padding:'1px 7px',borderRadius:10,background:'#A03030',color:'#FFF',
+        fontSize:10,fontWeight:900,verticalAlign:'middle'}}>{n}</span>
+    );
+  };
 
   return (
     <div style={{minHeight:'100vh',background:'#F5EBE0',fontFamily:"'DM Sans',-apple-system,sans-serif"}}>
@@ -33,7 +60,7 @@ export default function AdminApp({ user, onLogout }) {
               style={{padding:'7px 14px',fontSize:11,fontWeight:900,letterSpacing:1,textTransform:'uppercase',
                 border:'none',borderRadius:6,cursor:'pointer',
                 background: tab === t ? '#FAD6A5' : 'transparent',
-                color: tab === t ? '#000' : '#FAD6A5'}}>{t}</button>
+                color: tab === t ? '#000' : '#FAD6A5'}}>{t}{tabBadge(t)}</button>
           ))}
         </div>
         <div className="admin-user-email" style={{fontSize:11,opacity:0.85}}>{user.email}</div>
@@ -43,10 +70,14 @@ export default function AdminApp({ user, onLogout }) {
         </button>
       </div>
 
-      {!reviewing ? (
+      {reviewingCollection ? (
+        <ReviewCollection user={user} collection={reviewingCollection}
+          onDone={() => { setReviewingCollection(null); setRefresh(r => r + 1); }}/>
+      ) : !reviewing ? (
         <div className="admin-body" style={{padding:20,maxWidth:1200,margin:'0 auto'}}>
           {tab === 'Pending' && <SubmissionList status="pending" onReview={setReviewing} refresh={refresh}/>}
           {tab === 'All submissions' && <SubmissionList onReview={setReviewing} refresh={refresh}/>}
+          {tab === 'Collections' && <CollectionsPanel onReview={setReviewingCollection} refresh={refresh}/>}
           {tab === 'Users' && <UserManager/>}
           {tab === 'Venues' && <VenueManager/>}
           {tab === 'Exports' && <ExportPanel/>}
@@ -125,21 +156,25 @@ function ReviewSubmission({ user, submission, onDone }) {
   }, [submission.id]);
 
   const approve = async () => {
+    if (!window.confirm('Approve this DSR submission? It will be written to the database and locked from further edits.')) return;
     setBusy(true); setErr('');
     try {
       await api(`/api/admin/submissions/${submission.id}/approve`, {
         method: 'POST', body: JSON.stringify({}),
       });
+      window.alert('✓ Approved.');
       onDone();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   const reject = async () => {
     if (!rejectNotes.trim()) { setErr('Please write a rejection note'); return; }
+    if (!window.confirm('Reject this submission? The venue will see your note and be able to re-submit.')) return;
     setBusy(true); setErr('');
     try {
       await api(`/api/admin/submissions/${submission.id}/reject`, {
         method: 'POST', body: JSON.stringify({ notes: rejectNotes }),
       });
+      window.alert('Rejected. The venue can now re-submit with corrections.');
       onDone();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -203,6 +238,353 @@ function ReviewSubmission({ user, submission, onDone }) {
       <div className="admin-review-readonly">
         <DSRForm user={user} initialSubmission={full} onSubmitted={() => {}}/>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Collections — pending + all (collector submissions, approval queue)
+// ---------------------------------------------------------------------
+function money(n) {
+  const v = Number.isFinite(Number(n)) ? Number(n) : 0;
+  return '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function CollectionsPanel({ onReview, refresh }) {
+  const [filter, setFilter] = useState('pending');
+  const [rows, setRows] = useState([]);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    setErr('');
+    api('/api/collections' + (filter === 'all' ? '' : `?status=${filter}`))
+      .then(setRows)
+      .catch(e => setErr(e.message));
+  }, [filter, refresh]);
+
+  return (
+    <div style={card}>
+      <div style={{...cardHeader,display:'flex',alignItems:'center',gap:10}}>
+        <span style={{flex:1}}>Collections</span>
+        <select value={filter} onChange={e => setFilter(e.target.value)}
+          style={{padding:'4px 8px',fontSize:11,fontWeight:800,border:'2px solid #000',borderRadius:6,background:'#FFFDF9',cursor:'pointer'}}>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+      {err && <div style={{padding:14,color:'#A03030'}}>{err}</div>}
+      {rows.length === 0 ? (
+        <div style={{padding:20,color:'#6B5A4E',fontStyle:'italic'}}>
+          Nothing in {filter === 'all' ? 'collections' : filter}.
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{background:'#FBF2D8',textAlign:'left'}}>
+                <th style={th}>Date</th>
+                <th style={th}>Venue</th>
+                <th style={th}>Collector</th>
+                <th style={th}>Status</th>
+                <th style={th}>Submitted at</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id} style={{borderTop:'1px solid #F5EBE0'}}>
+                  <td style={td}><b>{fmtDate(r.report_date)}</b></td>
+                  <td style={td}>{r.location_name}</td>
+                  <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{r.submitter_email}</td>
+                  <td style={td}><StatusBadge status={r.status}/></td>
+                  <td style={{...td,fontSize:12,color:'#6B5A4E'}}>{r.submitted_at && new Date(r.submitted_at).toLocaleString()}</td>
+                  <td style={{...td,textAlign:'right'}}>
+                    <button style={linkBtn} onClick={() => onReview(r)}>Review</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Review a single collection (read-only view + approve/reject).
+function ReviewCollection({ collection, onDone }) {
+  const [full, setFull] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [rejectNotes, setRejectNotes] = useState('');
+  const [showReject, setShowReject] = useState(false);
+
+  useEffect(() => {
+    api(`/api/collections/${collection.id}`).then(setFull).catch(e => setErr(e.message));
+  }, [collection.id]);
+
+  const approve = async () => {
+    if (!window.confirm('Approve this collection? It will be locked from further edits and queued for QuickBooks export.')) return;
+    setBusy(true); setErr('');
+    try {
+      await api(`/api/admin/collections/${collection.id}/approve`, { method: 'POST', body: JSON.stringify({}) });
+      window.alert('✓ Collection approved.');
+      onDone();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const reject = async () => {
+    if (!rejectNotes.trim()) { setErr('Please write a rejection note'); return; }
+    if (!window.confirm('Reject this collection? The collector will see your note and can re-submit.')) return;
+    setBusy(true); setErr('');
+    try {
+      await api(`/api/admin/collections/${collection.id}/reject`, {
+        method: 'POST', body: JSON.stringify({ notes: rejectNotes }),
+      });
+      window.alert('Rejected. The collector can now re-submit with corrections.');
+      onDone();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  if (err && !full) return <div style={{padding:40,color:'#A03030'}}>{err}</div>;
+  if (!full) return <div style={{padding:40,color:'#6B5A4E'}}>Loading…</div>;
+
+  const p = full.payload || {};
+  const isPending = full.status === 'pending';
+  const isBigEasy = p.split_used?.type === 'big_easy';
+
+  return (
+    <div>
+      <div style={{position:'sticky',top:0,zIndex:99,background:'#FFFDF9',borderBottom:'2px solid #000',padding:'10px 20px',
+        display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',boxShadow:'0 3px 12px #0002'}}>
+        <button onClick={onDone} style={linkBtn}>← Back</button>
+        <div style={{flex:1,fontSize:14,fontWeight:800}}>
+          Collection: <b>{full.location_name}</b> · {fmtDate(full.report_date)} · {full.submitter_email} <StatusBadge status={full.status}/>
+        </div>
+        {isPending && (
+          <>
+            <button onClick={() => setShowReject(s => !s)} disabled={busy}
+              style={{...linkBtn,background:'#FFE8E8',borderColor:'#A03030',color:'#A03030'}}>Reject</button>
+            <button onClick={approve} disabled={busy}
+              style={{...linkBtn,background:'#4A7A2D',color:'#FFF'}}>Approve</button>
+          </>
+        )}
+      </div>
+      {showReject && isPending && (
+        <div style={{background:'#FFE8E8',padding:'12px 20px',borderBottom:'2px solid #A03030',display:'flex',gap:8,alignItems:'flex-start'}}>
+          <textarea value={rejectNotes} onChange={e => setRejectNotes(e.target.value)}
+            placeholder="Why is this being rejected? Note is shown to the collector."
+            style={{flex:1,minHeight:60,padding:8,border:'2px solid #A03030',borderRadius:6,fontSize:13,fontFamily:'inherit'}}/>
+          <button onClick={reject} disabled={busy}
+            style={{...linkBtn,background:'#A03030',color:'#FFF',borderColor:'#A03030'}}>Confirm reject</button>
+        </div>
+      )}
+      {err && <div style={{padding:'8px 20px',background:'#FFE8E8',color:'#A03030',fontWeight:700}}>{err}</div>}
+
+      <div style={{padding:20,maxWidth:1100,margin:'0 auto',display:'flex',flexDirection:'column',gap:16}}>
+        {/* Top totals */}
+        <div style={card}>
+          <div style={cardHeader}>Summary</div>
+          <div style={{padding:16,display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))'}}>
+            <Stat label="Total IN" value={money(p.total_in)}/>
+            <Stat label="Total OUT" value={money(p.total_out)}/>
+            <Stat label="Net Cash" value={money(p.net_cash)}/>
+            <Stat label="BE this pickup" value={money(p.be_total)}/>
+            <Stat label="Location this pickup" value={money(p.location_total)}/>
+            <Stat label="Split" value={p.split_used
+              ? (p.split_used.type === 'big_easy' ? `Big Easy · ${p.split_used.percentage}%` : `${p.split_used.percentage}% split`)
+              : '—'}/>
+          </div>
+        </div>
+
+        {/* Waterfall (if big_easy) */}
+        {isBigEasy && p.waterfall && (
+          <div style={card}>
+            <div style={cardHeader}>Waterfall</div>
+            <div style={{padding:16}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{background:'#FAD6A5'}}>
+                    <th style={{...th,textAlign:'left'}}>Step</th>
+                    <th style={{...th,textAlign:'right'}}>BE</th>
+                    <th style={{...th,textAlign:'right'}}>Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style={{borderTop:'1px solid #F5EBE0'}}>
+                    <td style={td}>Prior paid before this collection</td>
+                    <td style={{...td,textAlign:'right'}}>{money(p.waterfall.t1_prior)}</td>
+                    <td style={{...td,textAlign:'right'}}>{money(p.waterfall.t2_prior)}</td>
+                  </tr>
+                  <tr style={{borderTop:'1px solid #F5EBE0'}}>
+                    <td style={td}>Tranche 1 (100% to BE)</td>
+                    <td style={{...td,textAlign:'right',fontWeight:800,color:'#234A12'}}>{money(p.waterfall.to_t1)}</td>
+                    <td style={{...td,textAlign:'right',color:'#6B5A4E'}}>—</td>
+                  </tr>
+                  <tr style={{borderTop:'1px solid #F5EBE0'}}>
+                    <td style={td}>Tranche 2 (100% to Location)</td>
+                    <td style={{...td,textAlign:'right',color:'#6B5A4E'}}>—</td>
+                    <td style={{...td,textAlign:'right',fontWeight:800,color:'#234A12'}}>{money(p.waterfall.to_t2)}</td>
+                  </tr>
+                  <tr style={{borderTop:'1px solid #F5EBE0'}}>
+                    <td style={td}>Remainder split ({money(p.waterfall.remainder)} @ {p.split_used?.percentage}%)</td>
+                    <td style={{...td,textAlign:'right',fontWeight:800}}>{money(p.waterfall.be_from_split)}</td>
+                    <td style={{...td,textAlign:'right',fontWeight:800}}>{money(p.waterfall.location_from_split)}</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr style={{background:'#FBF2D8',borderTop:'2px solid #000'}}>
+                    <td style={{...td,fontWeight:900}}>After this collection</td>
+                    <td style={{...td,textAlign:'right',fontWeight:900}}>
+                      {money(p.waterfall.t1_paid_after)} paid · {money(p.waterfall.t1_remaining_after)} owed
+                    </td>
+                    <td style={{...td,textAlign:'right',fontWeight:900}}>
+                      {money(p.waterfall.t2_paid_after)} paid · {money(p.waterfall.t2_remaining_after)} owed
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+              {p.waterfall_prior_override && (
+                <div style={{marginTop:10,padding:'8px 12px',background:'#FFF4D6',border:'2px solid #C98A1B',borderRadius:7,fontSize:12,color:'#6B4A0A',fontWeight:700}}>
+                  ⚠ Collector manually overrode prior-paid values. Auto-loaded values were:
+                  BE {money(p.waterfall_prior_autoloaded?.t1_paid || 0)} · Location {money(p.waterfall_prior_autoloaded?.t2_paid || 0)}.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bills collected */}
+        {p.bills && (
+          <div style={card}>
+            <div style={cardHeader}>Bills collected</div>
+            <div style={{padding:16,display:'grid',gap:8,gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))'}}>
+              {[
+                ['$1', 1, p.bills.d1], ['$5', 5, p.bills.d5], ['$10', 10, p.bills.d10],
+                ['$20', 20, p.bills.d20], ['$50', 50, p.bills.d50], ['$100', 100, p.bills.d100],
+              ].map(([label, val, n]) => (
+                <div key={label} style={{padding:'8px 10px',background:'#FFF',border:'2px solid #000',borderRadius:7}}>
+                  <div style={{fontSize:10,fontWeight:900,letterSpacing:1,color:'#6B5A4E'}}>{label} × {n || 0}</div>
+                  <div style={{fontSize:14,fontWeight:800}}>{money((Number(n) || 0) * val)}</div>
+                </div>
+              ))}
+              <div style={{padding:'8px 10px',background:'#FBF2D8',border:'2px solid #000',borderRadius:7}}>
+                <div style={{fontSize:10,fontWeight:900,letterSpacing:1,color:'#6B5A4E'}}>Total</div>
+                <div style={{fontSize:14,fontWeight:900}}>{money(p.bills_total)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CRT */}
+        {p.crt && (
+          <div style={card}>
+            <div style={cardHeader}>CRT: Says / Actual / Added / Final</div>
+            <div style={{padding:16,overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:500}}>
+                <thead>
+                  <tr style={{background:'#FAD6A5'}}>
+                    <th style={{...th,textAlign:'left'}}>Denom</th>
+                    <th style={{...th,textAlign:'right'}}>Says</th>
+                    <th style={{...th,textAlign:'right'}}>Actual</th>
+                    <th style={{...th,textAlign:'right'}}>Added</th>
+                    <th style={{...th,textAlign:'right'}}>Final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[['$1','c1'],['$5','c5'],['$20 (A)','c20a'],['$20 (B)','c20b']].map(([lbl,k]) => (
+                    <tr key={k} style={{borderTop:'1px solid #F5EBE0'}}>
+                      <td style={td}><b>{lbl}</b></td>
+                      <td style={{...td,textAlign:'right'}}>{money(p.crt[k]?.says)}</td>
+                      <td style={{...td,textAlign:'right'}}>{money(p.crt[k]?.actual)}</td>
+                      <td style={{...td,textAlign:'right'}}>{money(p.crt[k]?.added)}</td>
+                      <td style={{...td,textAlign:'right'}}>{money(p.crt[k]?.final)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{background:'#FBF2D8',borderTop:'2px solid #000'}}>
+                    <td style={{...td,fontWeight:900}}>Totals</td>
+                    <td style={{...td,textAlign:'right',fontWeight:900}}>{money(p.crt_totals?.says)}</td>
+                    <td style={{...td,textAlign:'right',fontWeight:900}}>{money(p.crt_totals?.actual)}</td>
+                    <td style={{...td,textAlign:'right',fontWeight:900}}>{money(p.crt_totals?.added)}</td>
+                    <td style={{...td,textAlign:'right',fontWeight:900}}>{money(p.crt_totals?.final)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{...td,fontWeight:700,color:'#6B5A4E'}}>Actual − Says</td>
+                    <td style={{...td,textAlign:'right',fontWeight:900,
+                      color:p.crt_diff < 0 ? '#A03030' : p.crt_diff > 0 ? '#234A12' : '#3D2E1F'}} colSpan={4}>
+                      {p.crt_diff >= 0 ? '+' : ''}{money(p.crt_diff)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Reject + Added/Exchanged + Deposit */}
+        <div style={card}>
+          <div style={cardHeader}>Reject · Added/Exchanged · Deposit</div>
+          <div style={{padding:16,display:'grid',gap:14,gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))'}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:900,letterSpacing:1,textTransform:'uppercase',color:'#6B5A4E'}}>Reject tray</div>
+              <div style={{fontSize:13,marginTop:4}}>Says: {money(p.reject?.says)} · Actual: {money(p.reject?.actual)}</div>
+              <div style={{fontSize:13,fontWeight:900,color:p.reject?.diff < 0 ? '#A03030' : '#234A12'}}>
+                Diff: {p.reject?.diff >= 0 ? '+' : ''}{money(p.reject?.diff)}
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:900,letterSpacing:1,textTransform:'uppercase',color:'#6B5A4E'}}>Added or Exchanged</div>
+              <div style={{fontSize:13,marginTop:4,fontWeight:700}}>
+                {p.added_or_exchanged?.mode === 'none' ? 'Neither' :
+                 p.added_or_exchanged?.mode === 'added' ? 'Added bills to CRT' :
+                 p.added_or_exchanged?.mode === 'exchanged' ? 'Exchanged bills with CRT' : '—'}
+              </div>
+              {p.added_or_exchanged?.note && <div style={{fontSize:12,marginTop:4,color:'#3D2E1F'}}>{p.added_or_exchanged.note}</div>}
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:900,letterSpacing:1,textTransform:'uppercase',color:'#6B5A4E'}}>Deposit</div>
+              <div style={{fontSize:13,marginTop:4}}>Ask: {money(p.deposit?.ask)} · Actual: {money(p.deposit?.actual)}</div>
+              <div style={{fontSize:13,fontWeight:900,color:p.deposit?.diff < 0 ? '#A03030' : '#234A12'}}>
+                Diff: {p.deposit?.diff >= 0 ? '+' : ''}{money(p.deposit?.diff)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Split override, notes, admin notes */}
+        {p.split_override && (
+          <div style={card}>
+            <div style={cardHeader}>Split override (one-off)</div>
+            <div style={{padding:16,fontSize:13}}>
+              <b>{p.split_override.type === 'big_easy' ? 'Big Easy' : 'Percentage'}</b> · {p.split_override.percentage}%
+              <div style={{marginTop:6,color:'#6B5A4E',fontStyle:'italic'}}>Reason: {p.split_override.reason}</div>
+            </div>
+          </div>
+        )}
+        {p.notes && (
+          <div style={card}>
+            <div style={cardHeader}>Collector notes</div>
+            <div style={{padding:16,fontSize:13,whiteSpace:'pre-wrap'}}>{p.notes}</div>
+          </div>
+        )}
+        {full.admin_notes && (
+          <div style={{...card,background:'#FFE8E8'}}>
+            <div style={{...cardHeader,background:'#F5C4C4'}}>Admin notes</div>
+            <div style={{padding:16,fontSize:13,whiteSpace:'pre-wrap',color:'#6B1818'}}>{full.admin_notes}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }) {
+  return (
+    <div style={{padding:'10px 12px',background:'#FFF',border:'2px solid #000',borderRadius:8,boxShadow:'2px 2px 0 #000'}}>
+      <div style={{fontSize:10,fontWeight:900,letterSpacing:1.5,textTransform:'uppercase',color:'#6B5A4E'}}>{label}</div>
+      <div style={{fontSize:17,fontWeight:900,fontFamily:"'Fraunces',serif"}}>{value}</div>
     </div>
   );
 }
