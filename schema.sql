@@ -223,9 +223,127 @@ INSERT IGNORE INTO locations (location_name, location_status, location_type) VAL
   ('Starlite Saloon',          'active', 'company_owned'),
   ('Whiskey Room',             'active', 'company_owned');
 
--- For any existing rows missing location_type (pre-migration installs), mark
--- them company_owned so nothing shows up as third-party by accident.
+-- Seed the 68 third-party (RSS) venues pulled from the live rss_revenue DB
+-- on 2026-04-22 (business_unit='RSS'). INSERT IGNORE is a no-op on prod where
+-- these rows already exist; on fresh dev/staging installs it gives the admin
+-- Venue Manager the full roster to configure.
+INSERT IGNORE INTO locations (location_name, location_status, location_type) VALUES
+  ('B B Wings BBQ',            'active', 'third_party'),
+  ('Bar 529',                  'active', 'third_party'),
+  ('Bethany',                  'active', 'third_party'),
+  ('Bing Bass Bingo',          'active', 'third_party'),
+  ('Bracken Creekside',        'active', 'third_party'),
+  ('Broad Street Billiards',   'active', 'third_party'),
+  ('Buc s Bar Grill',          'active', 'third_party'),
+  ('Capital O Hotel',          'active', 'third_party'),
+  ('Cardinal Sweepstakes',     'active', 'third_party'),
+  ('Champs Sports Bar',        'active', 'third_party'),
+  ('Christie''s',              'active', 'third_party'),
+  ('Crazy Horse',              'active', 'third_party'),
+  ('Creedmoor Grocery',        'active', 'third_party'),
+  ('Dead Kat Tattoo 1',        'active', 'third_party'),
+  ('Double Daves Pizza',       'active', 'third_party'),
+  ('Easy Street',              'active', 'third_party'),
+  ('El 915 Bar',               'active', 'third_party'),
+  ('El Rey',                   'active', 'third_party'),
+  ('Evolution Tattoo',         'active', 'third_party'),
+  ('FIASCO',                   'active', 'third_party'),
+  ('Gallinas Locas Bar',       'active', 'third_party'),
+  ('Goodfellow''s',            'active', 'third_party'),
+  ('Grab Axxes',               'active', 'third_party'),
+  ('Hard 90 Sports Bar',       'active', 'third_party'),
+  ('Herman Marshall',          'active', 'third_party'),
+  ('High Horse',               'active', 'third_party'),
+  ('High Society 1 Jasper',    'active', 'third_party'),
+  ('High Society 2 Stan',      'active', 'third_party'),
+  ('High Society 3 Temple',    'active', 'third_party'),
+  ('Hitching Post',            'active', 'third_party'),
+  ('Kathy''s',                 'active', 'third_party'),
+  ('La Pasadita 349',          'active', 'third_party'),
+  ('Loaded Daiquiris',         'active', 'third_party'),
+  ('Lucky Dragon',             'active', 'third_party'),
+  ('Lucky Lion',               'active', 'third_party'),
+  ('Lucky''s',                 'active', 'third_party'),
+  ('Mayan Taqueria',           'active', 'third_party'),
+  ('McNeal''s Galveston',      'active', 'third_party'),
+  ('McNeal''s Tavern',         'active', 'third_party'),
+  ('Midtown Meetup',           'active', 'third_party'),
+  ('MoBetter Bar',             'active', 'third_party'),
+  ('Mr. D''s Cardinal',        'active', 'third_party'),
+  ('Mr. D''s Redplum',         'active', 'third_party'),
+  ('Mr. Jim''s',               'active', 'third_party'),
+  ('Old 181 Bar',              'active', 'third_party'),
+  ('On The River',             'active', 'third_party'),
+  ('Pressbox',                 'active', 'third_party'),
+  ('Rikenjaks',                'active', 'third_party'),
+  ('Rocco''s Hot Wings',       'active', 'third_party'),
+  ('Rodeo 4',                  'active', 'third_party'),
+  ('Shamrock',                 'active', 'third_party'),
+  ('Smoking Jacket',           'active', 'third_party'),
+  ('Solano''s',                'active', 'third_party'),
+  ('The Players Lounge',       'active', 'third_party'),
+  ('The Ready Room',           'active', 'third_party'),
+  ('The Society Barbershop',   'active', 'third_party'),
+  ('The Spot',                 'active', 'third_party'),
+  ('The Trio Club',            'active', 'third_party'),
+  ('The Underpass',            'active', 'third_party'),
+  ('The Vintage Hangout',      'active', 'third_party'),
+  ('Time To Spare',            'active', 'third_party'),
+  ('Trickler''s Deli',         'active', 'third_party'),
+  ('Turn Around Bar',          'active', 'third_party'),
+  ('Two Rivers',               'active', 'third_party'),
+  ('Vegas Texas',              'active', 'third_party'),
+  ('Wetmore Beach House',      'active', 'third_party'),
+  ('WhiskeyTA Club',           'active', 'third_party'),
+  ('Woody''s',                 'active', 'third_party');
+
+-- Backfill location_type from the production `business_unit` column if it
+-- exists (RSS→third_party, BEE→company_owned). On fresh dev DBs that never
+-- had business_unit, this block is skipped and the seeds above are the only
+-- source of truth.
+SET @has_bu := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='locations' AND COLUMN_NAME='business_unit');
+SET @sql := IF(@has_bu=1,
+  "UPDATE locations SET location_type=CASE WHEN business_unit='RSS' THEN 'third_party' WHEN business_unit='BEE' THEN 'company_owned' ELSE location_type END",
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- For any remaining rows with NULL location_type (pre-migration installs with
+-- no business_unit column), fall back to company_owned so nothing shows up as
+-- third-party by accident.
 UPDATE locations SET location_type='company_owned' WHERE location_type IS NULL;
+
+-- Pre-configure the 4 venues whose forms have been analyzed from Monday.com
+-- exports — only if still unconfigured, so admin edits are never overwritten.
+-- Buc's Bar & Grill: $2500 Big Easy split, 4 Redplum cabinets.
+UPDATE locations
+   SET collection_split_type='big_easy',
+       cabinet_count=4,
+       cabinet_config_json='[{"label":"1","type":"redplum"},{"label":"2","type":"redplum"},{"label":"3","type":"redplum"},{"label":"4","type":"redplum"}]'
+ WHERE location_name='Buc s Bar Grill' AND collection_split_type IS NULL;
+
+-- The Ready Room: 50/50 percentage split, 6 Redplum cabinets.
+UPDATE locations
+   SET collection_split_type='percentage',
+       split_percentage=50.00,
+       cabinet_count=6,
+       cabinet_config_json='[{"label":"1","type":"redplum"},{"label":"2","type":"redplum"},{"label":"3","type":"redplum"},{"label":"4","type":"redplum"},{"label":"5","type":"redplum"},{"label":"6","type":"redplum"}]'
+ WHERE location_name='The Ready Room' AND collection_split_type IS NULL;
+
+-- Lucky Dragon: $2500 Big Easy split, 22 cabinets (10 Redplum + 12 Cardinal).
+UPDATE locations
+   SET collection_split_type='big_easy',
+       cabinet_count=22,
+       cabinet_config_json='[{"label":"1","type":"redplum"},{"label":"2","type":"redplum"},{"label":"3","type":"redplum"},{"label":"4","type":"redplum"},{"label":"5","type":"redplum"},{"label":"6","type":"redplum"},{"label":"7","type":"redplum"},{"label":"8","type":"redplum"},{"label":"9","type":"redplum"},{"label":"10","type":"redplum"},{"label":"11","type":"cardinal"},{"label":"12","type":"cardinal"},{"label":"13","type":"cardinal"},{"label":"14","type":"cardinal"},{"label":"15","type":"cardinal"},{"label":"16","type":"cardinal"},{"label":"17","type":"cardinal"},{"label":"18","type":"cardinal"},{"label":"19","type":"cardinal"},{"label":"20","type":"cardinal"},{"label":"21","type":"cardinal"},{"label":"22","type":"cardinal"}]'
+ WHERE location_name='Lucky Dragon' AND collection_split_type IS NULL;
+
+-- Kathy's: 50/50 percentage split, 6 Cardinal cabinets (grew from 2 to 6 over time).
+UPDATE locations
+   SET collection_split_type='percentage',
+       split_percentage=50.00,
+       cabinet_count=6,
+       cabinet_config_json='[{"label":"1","type":"cardinal"},{"label":"2","type":"cardinal"},{"label":"3","type":"cardinal"},{"label":"4","type":"cardinal"},{"label":"5","type":"cardinal"},{"label":"6","type":"cardinal"}]'
+ WHERE location_name='Kathy''s' AND collection_split_type IS NULL;
 
 -- =====================================================================
 -- COLLECTOR ROLE + user_venues assignment
