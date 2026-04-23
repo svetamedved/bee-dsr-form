@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Login from './Login.jsx';
 import VenueApp from './VenueApp.jsx';
 import AdminApp from './AdminApp.jsx';
+import CollectorApp from './CollectorApp.jsx';
 import ChangePassword from './ChangePassword.jsx';
 import { api, getToken, clearToken } from './auth.js';
 
@@ -30,5 +31,6 @@ export default function App() {
     return <ChangePassword user={user} onDone={() => setUser({ ...user, must_change_password: false })}/>;
   }
   if (user.role === 'admin') return <AdminApp user={user} onLogout={() => setUser(null)}/>;
+  if (user.role === 'collector') return <CollectorApp user={user} onLogout={() => setUser(null)}/>;
   return <VenueApp user={user} onLogout={() => setUser(null)}/>;
 }

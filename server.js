@@ -305,6 +305,22 @@ app.post('/api/auth/login', async (req, res) => {
       { id: u.id, email: u.email, role: u.role, location_id: u.location_id },
       JWT_SECRET, { expiresIn: JWT_TTL }
     );
+    // Collectors get their list of assigned third-party venues at login so the
+    // frontend can route them to the collector dashboard immediately.
+    let assigned_venues = [];
+    if (u.role === 'collector') {
+      const [av] = await pool.execute(
+        `SELECT l.location_id AS id, l.location_name AS name, l.location_type,
+                l.collection_split_type, l.split_percentage, l.split_config_json,
+                l.cabinet_count, l.cabinet_config_json
+         FROM user_venues uv
+         JOIN locations l ON l.location_id = uv.location_id
+         WHERE uv.user_id = ?
+         ORDER BY l.location_name`,
+        [u.id]
+      );
+      assigned_venues = av;
+    }
     res.json({
       token,
       user: {
@@ -312,6 +328,7 @@ app.post('/api/auth/login', async (req, res) => {
         role: u.role, location_id: u.location_id,
         location_name: u.location_name,
         must_change_password: !!u.must_change_password,
+        assigned_venues,
       },
     });
   } catch (e) {
@@ -326,7 +343,19 @@ app.get('/api/auth/me', authRequired, async (req, res) => {
      FROM users u LEFT JOIN locations l ON l.location_id = u.location_id WHERE u.id=?`,
     [req.user.id]
   );
-  res.json({ user: rows[0] });
+  const user = rows[0];
+  if (user && user.role === 'collector') {
+    const [av] = await pool.execute(
+      `SELECT l.location_id AS id, l.location_name AS name, l.location_type,
+              l.collection_split_type, l.split_percentage, l.split_config_json,
+              l.cabinet_count, l.cabinet_config_json
+       FROM user_venues uv JOIN locations l ON l.location_id = uv.location_id
+       WHERE uv.user_id = ? ORDER BY l.location_name`,
+      [user.id]
+    );
+    user.assigned_venues = av;
+  }
+  res.json({ user });
 });
 
 app.post('/api/auth/change-password', authRequired, async (req, res) => {
@@ -347,31 +376,249 @@ app.post('/api/auth/change-password', authRequired, async (req, res) => {
 // =====================================================================
 app.get('/api/locations', authRequired, async (req, res) => {
   // Map the existing DB's location_id/location_name to {id,name} for the frontend.
+  // Optional ?type=company_owned|third_party filter so admin screens can show one
+  // list at a time. Returns the full venue config (split + cabinet) so the admin
+  // UI and collector form can render without extra round-trips.
+  const type = req.query.type;
+  const params = [];
+  let where = '';
+  if (type === 'company_owned' || type === 'third_party') {
+    where = ' WHERE location_type = ?';
+    params.push(type);
+  }
   const [rows] = await pool.execute(
-    `SELECT location_id AS id, location_name AS name, location_status
-     FROM locations ORDER BY location_name`
+    `SELECT location_id AS id, location_name AS name, location_status,
+            location_type, collection_split_type, split_percentage,
+            split_config_json, cabinet_count, cabinet_config_json,
+            address_line1, city, state, zip_code,
+            contact_name, contact_phone, contact_email, notes
+     FROM locations${where} ORDER BY location_name`,
+    params
   );
   res.json(rows);
+});
+
+// Collector's view: the venues admin has assigned to them. Returns the same
+// shape as /api/locations so the frontend can re-use the same card component.
+app.get('/api/my-venues', authRequired, async (req, res) => {
+  if (req.user.role !== 'collector') {
+    return res.status(403).json({ error: 'Collector only' });
+  }
+  const [rows] = await pool.execute(
+    `SELECT l.location_id AS id, l.location_name AS name, l.location_status,
+            l.location_type, l.collection_split_type, l.split_percentage,
+            l.split_config_json, l.cabinet_count, l.cabinet_config_json,
+            l.address_line1, l.city, l.state, l.zip_code,
+            l.contact_name, l.contact_phone, l.contact_email, l.notes,
+            uv.assigned_at
+     FROM user_venues uv
+     JOIN locations l ON l.location_id = uv.location_id
+     WHERE uv.user_id = ?
+     ORDER BY l.location_name`,
+    [req.user.id]
+  );
+  res.json(rows);
+});
+
+// =====================================================================
+// ADMIN — Venue management (create / update / delete / assign collectors)
+// =====================================================================
+// Shared helper: coerce a split config body into DB-safe values. For
+// percentage splits we require 0 <= split_percentage <= 100. For big_easy
+// (the $2500 monthly waterfall) we ignore split_percentage entirely.
+function normalizeVenueBody(b) {
+  const out = {};
+  if (b.location_name !== undefined) out.location_name = String(b.location_name).trim();
+  if (b.location_status !== undefined) out.location_status = String(b.location_status);
+  if (b.location_type !== undefined) {
+    if (!['company_owned','third_party'].includes(b.location_type))
+      throw new Error('invalid location_type');
+    out.location_type = b.location_type;
+  }
+  if (b.collection_split_type !== undefined) {
+    if (b.collection_split_type === null || b.collection_split_type === '') {
+      out.collection_split_type = null;
+    } else if (!['big_easy','percentage'].includes(b.collection_split_type)) {
+      throw new Error('invalid collection_split_type');
+    } else {
+      out.collection_split_type = b.collection_split_type;
+    }
+  }
+  if (b.split_percentage !== undefined) {
+    if (b.split_percentage === null || b.split_percentage === '') {
+      out.split_percentage = null;
+    } else {
+      const n = Number(b.split_percentage);
+      if (!Number.isFinite(n) || n < 0 || n > 100)
+        throw new Error('split_percentage must be between 0 and 100');
+      out.split_percentage = n;
+    }
+  }
+  if (b.split_config_json !== undefined) {
+    out.split_config_json = b.split_config_json === null ? null
+      : typeof b.split_config_json === 'string'
+        ? b.split_config_json
+        : JSON.stringify(b.split_config_json);
+  }
+  if (b.cabinet_count !== undefined) {
+    if (b.cabinet_count === null || b.cabinet_count === '') {
+      out.cabinet_count = null;
+    } else {
+      const n = parseInt(b.cabinet_count);
+      if (!Number.isFinite(n) || n < 0) throw new Error('cabinet_count must be >= 0');
+      out.cabinet_count = n;
+    }
+  }
+  if (b.cabinet_config_json !== undefined) {
+    out.cabinet_config_json = b.cabinet_config_json === null ? null
+      : typeof b.cabinet_config_json === 'string'
+        ? b.cabinet_config_json
+        : JSON.stringify(b.cabinet_config_json);
+  }
+  for (const k of ['address_line1','city','state','zip_code','contact_name','contact_phone','contact_email','notes']) {
+    if (b[k] !== undefined) out[k] = b[k] || null;
+  }
+  return out;
+}
+
+app.post('/api/admin/venues', authRequired, adminRequired, async (req, res) => {
+  try {
+    const body = normalizeVenueBody(req.body || {});
+    if (!body.location_name) return res.status(400).json({ error: 'location_name is required' });
+    if (!body.location_type) body.location_type = 'company_owned';
+    if (!body.location_status) body.location_status = 'active';
+    // Third-party venues need a split type so collections can be exported to QB.
+    if (body.location_type === 'third_party' && !body.collection_split_type) {
+      return res.status(400).json({ error: 'third_party venues require collection_split_type' });
+    }
+    if (body.collection_split_type === 'percentage' && body.split_percentage == null) {
+      return res.status(400).json({ error: 'percentage split requires split_percentage' });
+    }
+    const cols = Object.keys(body);
+    const vals = cols.map(k => body[k]);
+    const [r] = await pool.execute(
+      `INSERT INTO locations (${cols.join(',')}) VALUES (${cols.map(()=>'?').join(',')})`,
+      vals
+    );
+    res.json({ id: r.insertId });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'location_name already exists' });
+    console.error('create venue', e); res.status(400).json({ error: e.message });
+  }
+});
+
+app.patch('/api/admin/venues/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const body = normalizeVenueBody(req.body || {});
+    const cols = Object.keys(body);
+    if (!cols.length) return res.json({ success: true });
+    const sets = cols.map(c => `${c}=?`);
+    const vals = cols.map(c => body[c]);
+    vals.push(id);
+    await pool.execute(`UPDATE locations SET ${sets.join(', ')} WHERE location_id=?`, vals);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('update venue', e); res.status(400).json({ error: e.message });
+  }
+});
+
+app.delete('/api/admin/venues/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    // Guard: refuse if the venue has submissions, collections, or user accounts
+    // attached — audit history matters. Admin should flip location_status to
+    // 'inactive' instead.
+    const [[sub]] = await pool.execute('SELECT COUNT(*) AS n FROM submissions WHERE location_id=?', [id]);
+    const [[col]] = await pool.execute('SELECT COUNT(*) AS n FROM collections WHERE location_id=?', [id]);
+    const [[usr]] = await pool.execute('SELECT COUNT(*) AS n FROM users WHERE location_id=?', [id]);
+    if (sub.n || col.n || usr.n) {
+      return res.status(409).json({
+        error: `venue has ${sub.n} submission(s), ${col.n} collection(s), ${usr.n} user(s) on record — set status=inactive instead to preserve history`,
+        submissions: sub.n, collections: col.n, users: usr.n,
+      });
+    }
+    // Clean up any collector assignments for the venue first.
+    await pool.execute('DELETE FROM user_venues WHERE location_id=?', [id]);
+    await pool.execute('DELETE FROM locations WHERE location_id=?', [id]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('delete venue', e); res.status(500).json({ error: e.message });
+  }
+});
+
+// List collectors assigned to a venue (admin UI chip list).
+app.get('/api/admin/venues/:id/collectors', authRequired, adminRequired, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.email, u.name, uv.assigned_at
+     FROM user_venues uv JOIN users u ON u.id = uv.user_id
+     WHERE uv.location_id = ? AND u.role = 'collector' AND u.active = 1
+     ORDER BY u.name, u.email`,
+    [id]
+  );
+  res.json(rows);
+});
+
+// Assign a collector to a venue. Idempotent — duplicate assignments are ignored.
+app.post('/api/admin/venues/:id/collectors', authRequired, adminRequired, async (req, res) => {
+  try {
+    const locationId = parseInt(req.params.id);
+    const userId = parseInt(req.body?.user_id);
+    if (!userId) return res.status(400).json({ error: 'user_id required' });
+    const [[u]] = await pool.execute("SELECT role FROM users WHERE id=? AND active=1", [userId]);
+    if (!u) return res.status(404).json({ error: 'user not found' });
+    if (u.role !== 'collector') return res.status(400).json({ error: 'user is not a collector' });
+    await pool.execute(
+      `INSERT IGNORE INTO user_venues (user_id, location_id, assigned_by) VALUES (?, ?, ?)`,
+      [userId, locationId, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('assign collector', e); res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/admin/venues/:id/collectors/:userId', authRequired, adminRequired, async (req, res) => {
+  try {
+    await pool.execute(
+      'DELETE FROM user_venues WHERE location_id=? AND user_id=?',
+      [parseInt(req.params.id), parseInt(req.params.userId)]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('unassign collector', e); res.status(500).json({ error: e.message });
+  }
 });
 
 // =====================================================================
 // ADMIN — User management
 // =====================================================================
 app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
+  // Optional ?role=admin|venue|collector filter so the Venue Manager can pull
+  // collectors for the assignment dropdown without extra client-side filtering.
+  const role = req.query.role;
+  const params = [];
+  let where = '';
+  if (['admin','venue','collector'].includes(role)) {
+    where = ' WHERE u.role = ?';
+    params.push(role);
+  }
   const [rows] = await pool.execute(
     `SELECT u.id, u.email, u.name, u.role, u.active, u.location_id, u.last_login_at, l.location_name AS location_name
-     FROM users u LEFT JOIN locations l ON l.location_id = u.location_id
-     ORDER BY u.role DESC, u.email`
+     FROM users u LEFT JOIN locations l ON l.location_id = u.location_id${where}
+     ORDER BY u.role DESC, u.email`,
+    params
   );
   res.json(rows);
 });
 
 app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
   try {
-    const { email, name, password, role, location_id } = req.body || {};
+    const { email, name, password, role, location_id, venue_ids } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
-    if (!['admin','venue'].includes(role)) return res.status(400).json({ error: 'invalid role' });
+    if (!['admin','venue','collector'].includes(role)) return res.status(400).json({ error: 'invalid role' });
     if (role === 'venue' && !location_id) return res.status(400).json({ error: 'venue accounts need a location_id' });
     const hash = await bcrypt.hash(password, 10);
     const [r] = await pool.execute(
@@ -379,6 +626,17 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
        VALUES (?, ?, ?, ?, ?, 1)`,
       [email.toLowerCase().trim(), name || null, hash, role, role === 'venue' ? location_id : null]
     );
+    // For collectors, optionally seed their assignments in the same call so
+    // admins can create "Alice: Buc's + Ready Room + Lucky Dragon" in one step.
+    if (role === 'collector' && Array.isArray(venue_ids) && venue_ids.length) {
+      const values = venue_ids.map(() => '(?, ?, ?)').join(',');
+      const params = [];
+      for (const vid of venue_ids) { params.push(r.insertId, parseInt(vid), req.user.id); }
+      await pool.execute(
+        `INSERT IGNORE INTO user_venues (user_id, location_id, assigned_by) VALUES ${values}`,
+        params
+      );
+    }
     res.json({ id: r.insertId });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'email already exists' });
@@ -400,7 +658,7 @@ app.patch('/api/admin/users/:id', authRequired, adminRequired, async (req, res) 
       sets.push('email=?'); vals.push(e);
     }
     if (role !== undefined) {
-      if (!['admin','venue'].includes(role)) return res.status(400).json({ error: 'invalid role' });
+      if (!['admin','venue','collector'].includes(role)) return res.status(400).json({ error: 'invalid role' });
       // Protect against admins demoting themselves and locking out the system.
       if (targetId === req.user.id && role !== 'admin') {
         return res.status(400).json({ error: 'you cannot demote yourself' });
@@ -436,12 +694,19 @@ app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res)
       'SELECT COUNT(*) AS n FROM submissions WHERE user_id=? OR reviewed_by=?',
       [targetId, targetId]
     );
-    if (subCount.n > 0) {
+    const [[colCount]] = await pool.execute(
+      'SELECT COUNT(*) AS n FROM collections WHERE user_id=? OR reviewed_by=?',
+      [targetId, targetId]
+    );
+    if (subCount.n > 0 || colCount.n > 0) {
       return res.status(409).json({
-        error: `user has ${subCount.n} submission(s) on record — disable the account instead so audit history is preserved`,
+        error: `user has ${subCount.n} submission(s) and ${colCount.n} collection(s) on record — disable the account instead so audit history is preserved`,
         submissions: subCount.n,
+        collections: colCount.n,
       });
     }
+    // Clean up collector venue assignments — safe even if there are none.
+    await pool.execute('DELETE FROM user_venues WHERE user_id=?', [targetId]);
     // If this is the last active admin, refuse.
     if (user.role === 'admin') {
       const [[{ n: activeAdmins }]] = await pool.execute(
@@ -456,6 +721,47 @@ app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res)
     res.json({ success: true, deleted: user.email });
   } catch (e) {
     console.error(e); res.status(500).json({ error: e.message });
+  }
+});
+
+// =====================================================================
+// COLLECTIONS — list endpoint (stub until CollectionForm lands)
+// =====================================================================
+// Returns collections scoped to the caller: collectors see only their own,
+// admins see everything (filtered by ?status=pending|approved|rejected if
+// provided). The POST /api/collections endpoint + IIF export live with the
+// full collection form feature and haven't been wired yet.
+app.get('/api/collections', authRequired, async (req, res) => {
+  try {
+    const where = [];
+    const params = [];
+    if (req.user.role === 'collector') {
+      where.push('c.user_id = ?');
+      params.push(req.user.id);
+    } else if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    if (req.query.status && ['pending','approved','rejected'].includes(req.query.status)) {
+      where.push('c.status = ?');
+      params.push(req.query.status);
+    }
+    const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+    const [rows] = await pool.execute(
+      `SELECT c.id, c.location_id, c.user_id, c.report_date, c.status,
+              c.admin_notes, c.submitted_at, c.reviewed_at,
+              l.location_name, u.email AS submitter_email
+       FROM collections c
+       LEFT JOIN locations l ON l.location_id = c.location_id
+       LEFT JOIN users u ON u.id = c.user_id
+       ${whereSql}
+       ORDER BY c.report_date DESC, c.submitted_at DESC
+       LIMIT 200`,
+      params
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('collections list', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
