@@ -66,14 +66,14 @@ function defaultSplit(venue) {
   return { type: 'percentage', percentage: Number(venue.split_percentage) || 50 };
 }
 
-// 6-denomination bill breakdown (paper form order).
+// 6-denomination bill breakdown, ascending order.
 const BILL_DENOMS = [
-  { key: 'd10',  value: 10,  label: '$10'  },
-  { key: 'd50',  value: 50,  label: '$50'  },
-  { key: 'd100', value: 100, label: '$100' },
   { key: 'd1',   value: 1,   label: '$1'   },
   { key: 'd5',   value: 5,   label: '$5'   },
+  { key: 'd10',  value: 10,  label: '$10'  },
   { key: 'd20',  value: 20,  label: '$20'  },
+  { key: 'd50',  value: 50,  label: '$50'  },
+  { key: 'd100', value: 100, label: '$100' },
 ];
 
 // CRT reconciliation rows. Paper form has two $20 rows (one per $20 cassette).
@@ -389,7 +389,8 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
           <div style={cardHeader}>Collection details</div>
           <div style={{padding:16,display:'grid',gap:14,gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))'}}>
             <Field label="Date of collection">
-              <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)} style={input}/>
+              <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)}
+                style={{...input, color:'#3D2E1F', colorScheme:'light'}}/>
             </Field>
             <Field label="Venue">
               <div style={{...readonly, background:'#FBF2D8'}}>{venue.name}</div>
@@ -524,15 +525,23 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
 
         {/* 6. Added or Exchanged */}
         <div style={card}>
-          <div style={cardHeader}>Added or Exchanged</div>
+          <div style={cardHeader}>Added or Exchanged bills</div>
           <div style={{padding:16,display:'flex',flexDirection:'column',gap:12}}>
-            <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+            <div style={{fontSize:12,color:'#3D2E1F',lineHeight:1.5}}>
+              Did you put money <i>into</i> the CRT or swap bills with it during this visit?
+              <ul style={{margin:'6px 0 0 18px',padding:0}}>
+                <li><b>Added</b> — you put your own bills into the CRT to boost its float (e.g. added $500 in $20s). This reduces what you walk out with by that amount.</li>
+                <li><b>Exchanged</b> — you swapped bills with the CRT (e.g. traded a $100 for five $20s). No net money change, just denomination movement.</li>
+                <li><b>Neither</b> — you didn't add or exchange anything this visit.</li>
+              </ul>
+            </div>
+            <div style={{display:'flex',gap:16,flexWrap:'wrap',marginTop:4}}>
               {[
                 { v: 'none', l: 'Neither' },
                 { v: 'added', l: 'Added' },
                 { v: 'exchanged', l: 'Exchanged' },
               ].map(o => (
-                <label key={o.v} style={{display:'flex',gap:6,alignItems:'center',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                <label key={o.v} style={{display:'flex',gap:6,alignItems:'center',fontSize:13,fontWeight:700,cursor:'pointer',color:'#3D2E1F'}}>
                   <input type="radio" name="aox" value={o.v}
                     checked={addedOrExchanged === o.v}
                     onChange={e => setAddedOrExchanged(e.target.value)}/>
@@ -541,9 +550,11 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
               ))}
             </div>
             {addedOrExchanged !== 'none' && (
-              <Field label={`${addedOrExchanged === 'added' ? 'Added' : 'Exchanged'} note`}>
+              <Field label={`${addedOrExchanged === 'added' ? 'What was added?' : 'What was exchanged?'}`}>
                 <textarea value={addedExchangedNote} onChange={e => setAddedExchangedNote(e.target.value)} rows={2}
-                  placeholder={`What was ${addedOrExchanged}? (denom, amount, reason)`}
+                  placeholder={addedOrExchanged === 'added'
+                    ? 'e.g. added $500 in $20s to boost CRT float'
+                    : 'e.g. swapped $100 bill for five $20s'}
                   style={{...input,width:'100%',resize:'vertical',minHeight:50}}/>
               </Field>
             )}
@@ -796,7 +807,7 @@ const topbar = {display:'flex',alignItems:'center',gap:10,padding:'10px 20px',ba
 const body = {padding:20,maxWidth:1200,margin:'0 auto',display:'flex',flexDirection:'column',gap:20};
 const card = {background:'#FFFDF9',border:'2px solid #000',borderRadius:12,boxShadow:'4px 4px 0 #000',overflow:'hidden'};
 const cardHeader = {padding:'12px 16px',background:'#FAD6A5',borderBottom:'2px solid #000',fontSize:13,fontWeight:900,letterSpacing:2,textTransform:'uppercase'};
-const input = {padding:'8px 10px',fontSize:13,border:'2px solid #000',borderRadius:6,background:'#FFF',fontFamily:"'DM Sans',sans-serif",outline:'none'};
+const input = {padding:'8px 10px',fontSize:13,border:'2px solid #000',borderRadius:6,background:'#FFF',color:'#3D2E1F',fontFamily:"'DM Sans',sans-serif",outline:'none',colorScheme:'light'};
 const readonly = {padding:'8px 10px',fontSize:13,border:'2px solid #000',borderRadius:6,background:'#F5EBE0',fontWeight:700};
 const primaryBtn = {padding:'10px 18px',fontSize:12,fontWeight:900,letterSpacing:1.5,textTransform:'uppercase',border:'2px solid #000',borderRadius:7,background:'#000',color:'#FAD6A5',cursor:'pointer',boxShadow:'2px 2px 0 #000'};
 const secondaryBtn = {padding:'10px 18px',fontSize:12,fontWeight:900,letterSpacing:1.5,textTransform:'uppercase',border:'2px solid #000',borderRadius:7,background:'#FFF',color:'#000',cursor:'pointer',boxShadow:'2px 2px 0 #000'};
