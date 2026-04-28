@@ -84,12 +84,45 @@ const CRT_ROWS = [
   { key: 'c20b', label: '$20 (B)' },
 ];
 
+// Build the list of cabinets to show on the form for a given venue.
+// Order of preference:
+//   1. cabinet_config_json — full per-cabinet detail (label + type)
+//   2. cabinet_count — N generic numbered cabinets
+//   3. fallback — one untitled cabinet (so the form still renders)
+function buildCabinetList(venue) {
+  if (venue.cabinet_config_json) {
+    try {
+      const parsed = JSON.parse(venue.cabinet_config_json);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((c, i) => ({
+          key: `cab_${i}`,
+          label: c.label != null ? String(c.label) : String(i + 1),
+          type: (c.type || '').toLowerCase(),
+        }));
+      }
+    } catch { /* malformed JSON — fall through */ }
+  }
+  const n = Math.max(1, Number(venue.cabinet_count) || 1);
+  return Array.from({ length: n }, (_, i) => ({
+    key: `cab_${i}`,
+    label: String(i + 1),
+    type: '',
+  }));
+}
+
 export default function CollectionForm({ venue, user, onDone, onCancel }) {
   const [reportDate, setReportDate] = useState(todayISO());
 
-  // Aggregate cabinet readings (paper form doesn't go per-cabinet at submit).
-  const [totalInStr, setTotalInStr] = useState('');
-  const [totalOutStr, setTotalOutStr] = useState('');
+  // Per-cabinet IN / OUT inputs — one row per cabinet at this venue.
+  // Built once from venue.cabinet_config_json (preferred) or cabinet_count.
+  // Lucky Dragon (22 cabs), Buc's (4 cabs), Kathy's (6), etc. all render here.
+  const cabinetList = useMemo(() => buildCabinetList(venue), [venue]);
+  const [cabinetIO, setCabinetIO] = useState(() =>
+    Object.fromEntries(cabinetList.map(c => [c.key, { in: '', out: '' }]))
+  );
+  const setCabinetCell = (key, col, val) => {
+    setCabinetIO(p => ({ ...p, [key]: { ...p[key], [col]: val } }));
+  };
 
   // Bills collected breakdown — count of bills, not $.
   const [bills, setBills] = useState(() =>
@@ -178,8 +211,14 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
 
   // All derived values — recomputed every render, never stored.
   const derived = useMemo(() => {
-    const totalIn = num(totalInStr);
-    const totalOut = num(totalOutStr);
+    // Per-cabinet rows + aggregate IN/OUT/net for the form
+    const cabinetRows = cabinetList.map(c => {
+      const cIn = num(cabinetIO[c.key]?.in);
+      const cOut = num(cabinetIO[c.key]?.out);
+      return { ...c, in: cIn, out: cOut, net: cIn - cOut };
+    });
+    const totalIn = cabinetRows.reduce((s, r) => s + r.in, 0);
+    const totalOut = cabinetRows.reduce((s, r) => s + r.out, 0);
     const net = totalIn - totalOut;
 
     // Bills total
@@ -245,13 +284,13 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
     const depositDiff = num(depositActual) - num(depositAsk);
 
     return {
-      totalIn, totalOut, net,
+      cabinetRows, totalIn, totalOut, net,
       billsTotal, crtTotals, crtDiff,
       rejectDiff,
       waterfall, beTotal, locationTotal,
       depositDiff,
     };
-  }, [totalInStr, totalOutStr, bills, crt, rejectSays, rejectActual,
+  }, [cabinetList, cabinetIO, bills, crt, rejectSays, rejectActual,
       priorT1, priorT2, depositAsk, depositActual, activeSplit]);
 
   const setCrtCell = (row, col, val) => {
@@ -293,13 +332,18 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
 
   const canSubmit = () => {
     if (!reportDate) return false;
-    if (!totalInStr && !totalOutStr) return false;
+    // At least one cabinet must have a non-zero IN or OUT entered.
+    const anyEntry = cabinetList.some(c => {
+      const v = cabinetIO[c.key];
+      return (v && (v.in || v.out));
+    });
+    if (!anyEntry) return false;
     return true;
   };
 
   const submit = async () => {
     if (submitting) return;
-    if (!canSubmit()) { showToast('Enter Total IN / OUT and date', 'err'); return; }
+    if (!canSubmit()) { showToast('Enter at least one cabinet IN / OUT and a date', 'err'); return; }
     if (overrideOn && !overrideReason.trim()) {
       showToast('Split override needs a reason', 'err'); return;
     }
@@ -321,6 +365,16 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
           ? { type: overrideSplit.type, percentage: Number(overrideSplit.percentage), reason: overrideReason.trim() }
           : null,
         payload: {
+          // Per-cabinet detail — full audit trail of which cabinet earned what
+          cabinets: derived.cabinetRows.map(r => ({
+            key: r.key,
+            label: r.label,
+            type: r.type,
+            total_in: r.in,
+            total_out: r.out,
+            net: r.net,
+          })),
+          // Aggregate roll-ups (preserve existing keys for compatibility)
           total_in: derived.totalIn,
           total_out: derived.totalOut,
           net_cash: derived.net,
@@ -412,24 +466,81 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
           </div>
         </div>
 
-        {/* 2. Aggregate IN / OUT / Net */}
+        {/* 2. Per-cabinet IN / OUT — one row per cabinet at this venue */}
         <div style={card}>
-          <div style={cardHeader}>Total IN / OUT</div>
-          <div style={{padding:16,display:'grid',gap:14,gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))'}}>
-            <Field label="Total IN (cabinets 1–n)">
-              <input type="number" step="0.01" inputMode="decimal" value={totalInStr}
-                onChange={e => setTotalInStr(e.target.value)} style={input} placeholder="0.00"/>
-            </Field>
-            <Field label="Total OUT (cabinets 1–n)">
-              <input type="number" step="0.01" inputMode="decimal" value={totalOutStr}
-                onChange={e => setTotalOutStr(e.target.value)} style={input} placeholder="0.00"/>
-            </Field>
-            <Field label="Net Cash">
-              <div style={{...readonly, background:'#FBF2D8', fontWeight:900, fontSize:16, fontFamily:"'Fraunces',serif",
-                color: derived.net < 0 ? '#A03030' : '#234A12'}}>
-                {money(derived.net)}
-              </div>
-            </Field>
+          <div style={cardHeader}>
+            Cabinets — IN / OUT per machine ({cabinetList.length} cabinet{cabinetList.length === 1 ? '' : 's'})
+          </div>
+          <div style={{padding:16,overflowX:'auto'}}>
+            <div style={{fontSize:12,color:'#6B5A4E',marginBottom:10,lineHeight:1.5}}>
+              Enter Total IN and Total OUT from each cabinet's terminal tape. Net per cabinet
+              and the venue total are computed automatically.
+              {!venue.cabinet_config_json && (
+                <span style={{marginLeft:6, fontStyle:'italic', color:'#A03030'}}>
+                  · No cabinet config saved for this venue — showing {cabinetList.length} generic cabinet{cabinetList.length === 1 ? '' : 's'}
+                  based on cabinet_count.
+                </span>
+              )}
+            </div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:560}}>
+              <thead>
+                <tr style={{background:'#FAD6A5'}}>
+                  <th style={{...th,textAlign:'left'}}>Cabinet</th>
+                  <th style={{...th,textAlign:'left'}}>Type</th>
+                  <th style={{...th,textAlign:'right'}}>Total IN</th>
+                  <th style={{...th,textAlign:'right'}}>Total OUT</th>
+                  <th style={{...th,textAlign:'right'}}>Net</th>
+                </tr>
+              </thead>
+              <tbody>
+                {derived.cabinetRows.map(r => (
+                  <tr key={r.key} style={{borderTop:'1px solid #F5EBE0'}}>
+                    <td style={td}><b>#{r.label}</b></td>
+                    <td style={td}>
+                      {r.type ? (
+                        <span style={{
+                          fontSize:10, fontWeight:900, letterSpacing:1, textTransform:'uppercase',
+                          padding:'3px 8px', borderRadius:10, border:'1.5px solid #000',
+                          background: r.type === 'cardinal' ? '#FFF4D6' : r.type === 'redplum' ? '#FFE0E0' : '#EEE',
+                          color: '#3D2E1F',
+                        }}>{r.type}</span>
+                      ) : <span style={{color:'#6B5A4E',fontStyle:'italic',fontSize:11}}>—</span>}
+                    </td>
+                    <td style={td}>
+                      <input type="number" step="0.01" inputMode="decimal"
+                        value={cabinetIO[r.key]?.in ?? ''}
+                        onChange={e => setCabinetCell(r.key, 'in', e.target.value)}
+                        style={{...input,textAlign:'right',width:'100%'}} placeholder="0.00"/>
+                    </td>
+                    <td style={td}>
+                      <input type="number" step="0.01" inputMode="decimal"
+                        value={cabinetIO[r.key]?.out ?? ''}
+                        onChange={e => setCabinetCell(r.key, 'out', e.target.value)}
+                        style={{...input,textAlign:'right',width:'100%'}} placeholder="0.00"/>
+                    </td>
+                    <td style={{...td,textAlign:'right',fontWeight:900,
+                      color: r.net < 0 ? '#A03030' : r.net > 0 ? '#234A12' : '#6B5A4E'}}>
+                      {money(r.net)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{background:'#FBF2D8',borderTop:'2px solid #000'}}>
+                  <td style={{...td,fontWeight:900,textTransform:'uppercase',letterSpacing:1}} colSpan={2}>Venue total</td>
+                  <td style={{...td,textAlign:'right',fontWeight:900,fontSize:15,fontFamily:"'Fraunces',serif"}}>
+                    {money(derived.totalIn)}
+                  </td>
+                  <td style={{...td,textAlign:'right',fontWeight:900,fontSize:15,fontFamily:"'Fraunces',serif"}}>
+                    {money(derived.totalOut)}
+                  </td>
+                  <td style={{...td,textAlign:'right',fontWeight:900,fontSize:18,fontFamily:"'Fraunces',serif",
+                    color: derived.net < 0 ? '#A03030' : '#234A12'}}>
+                    {money(derived.net)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
 
