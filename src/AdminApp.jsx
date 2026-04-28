@@ -266,11 +266,11 @@ function CollectionsPanel({ onReview, refresh }) {
       <div style={{...cardHeader,display:'flex',alignItems:'center',gap:10}}>
         <span style={{flex:1}}>Collections</span>
         <select value={filter} onChange={e => setFilter(e.target.value)}
-          style={{padding:'4px 8px',fontSize:11,fontWeight:800,border:'2px solid #000',borderRadius:6,background:'#FFFDF9',cursor:'pointer'}}>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="all">All</option>
+          style={{padding:'4px 24px 4px 10px',fontSize:11,fontWeight:800,letterSpacing:1,textTransform:'uppercase',border:'2px solid #000',borderRadius:6,background:'#FFFDF9',color:'#3D2E1F',cursor:'pointer',colorScheme:'light',appearance:'auto'}}>
+          <option value="pending" style={{color:'#3D2E1F'}}>Pending</option>
+          <option value="approved" style={{color:'#3D2E1F'}}>Approved</option>
+          <option value="rejected" style={{color:'#3D2E1F'}}>Rejected</option>
+          <option value="all" style={{color:'#3D2E1F'}}>All</option>
         </select>
       </div>
       {err && <div style={{padding:14,color:'#A03030'}}>{err}</div>}
