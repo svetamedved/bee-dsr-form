@@ -19,6 +19,32 @@ const getVenueConfig = (loc) => ({
   skillDepositSource: "redPlumNet",
   ...(VENUE_CONFIG[loc] || {}),
 });
+
+// Split a venue's cabinet_config_json into Cardinal cabinets and Red Plum
+// cabinets so the DSR form can pre-populate the cabinet sections instead of
+// defaulting to 3 Cardinal + 2 Red Plum regardless of venue.
+//
+// Returns { cardinal: [{name,serial,in,out}], redplum: [{name,tid,serial,in,out}] }.
+// Returns null if the venue has no cabinet_config_json — caller falls back to
+// existing defaults.
+function splitCabinetConfig(cfgJson) {
+  if (!cfgJson) return null;
+  let parsed;
+  try { parsed = JSON.parse(cfgJson); } catch { return null; }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const cardinal = [];
+  const redplum  = [];
+  parsed.forEach((c) => {
+    const t = String(c.type || '').toLowerCase();
+    const label = c.label != null ? `Cabinet ${c.label}` : `Cabinet`;
+    if (t === 'cardinal') {
+      cardinal.push({ name: label, serial: c.serial || "", in: 0, out: 0 });
+    } else if (t === 'redplum' || t === 'red plum' || t === 'red_plum') {
+      redplum.push({ name: label, tid: c.tid || "", serial: c.serial || "", in: 0, out: 0 });
+    }
+  });
+  return { cardinal, redplum };
+}
 const fmt = n => { if (!n) return "$0.00"; const a = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); return n < 0 ? `-$${a}` : `$${a}`; };
 
 // Terminal-report photo types the GM can upload. Each one maps specific OCR
@@ -234,6 +260,38 @@ export default function DSRForm({ user, initialSubmission, onSubmitted, defaultD
       {name:"Cabinet 2", tid:"", serial:"", in:0, out:0},
     ]);
   const urc = (i, f, v) => setRpCabs(p => p.map((c, idx) => idx===i ? {...c, [f]: v} : c));
+
+  // When the GM picks a location, fetch that venue's cabinet_config_json from
+  // the DB and auto-populate the cabinet sections. This means a venue with
+  // 22 cabinets (10 Red Plum + 12 Cardinal) shows 22 rows immediately instead
+  // of the GM clicking "+ ADD CABINET" 17+ times. Only runs when cabinets are
+  // still at default state (no IN/OUT entered yet) so we never blow away
+  // unsaved data.
+  const cabinetsAreUntouched = useCallback(() => {
+    const cardClean = cardCabs.every(c => !c.in && !c.out);
+    const rpClean   = rpCabs.every(c => !c.in && !c.out);
+    return cardClean && rpClean;
+  }, [cardCabs, rpCabs]);
+  useEffect(() => {
+    if (!loc) return;
+    // Skip if user already entered numbers — preserves their work
+    if (!cabinetsAreUntouched()) return;
+    let cancelled = false;
+    api(`/api/locations`)
+      .then(rows => {
+        if (cancelled) return;
+        const venue = (Array.isArray(rows) ? rows : []).find(r => r.name === loc);
+        if (!venue) return;
+        const split = splitCabinetConfig(venue.cabinet_config_json);
+        if (!split) return;
+        if (split.cardinal.length > 0) setCardCabs(split.cardinal);
+        if (split.redplum.length > 0)  setRpCabs(split.redplum);
+      })
+      .catch(() => { /* fall back to defaults silently */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc]);
+
   const [skillDeposit, setSkillDeposit] = useState(+P.skill_deposit || 0);
   const [skillDepositTouched, setSkillDepositTouched] = useState(!!(+P.skill_deposit));
   // For venues where skill deposit = full Red Plum IN (e.g. Whiskey Room), auto-sync
