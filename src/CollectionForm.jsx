@@ -114,14 +114,33 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
   const [reportDate, setReportDate] = useState(todayISO());
 
   // Per-cabinet IN / OUT inputs — one row per cabinet at this venue.
-  // Built once from venue.cabinet_config_json (preferred) or cabinet_count.
-  // Lucky Dragon (22 cabs), Buc's (4 cabs), Kathy's (6), etc. all render here.
-  const cabinetList = useMemo(() => buildCabinetList(venue), [venue]);
+  // Initial list comes from venue.cabinet_config_json (preferred) or
+  // cabinet_count. Collectors can add or remove rows on the fly while the
+  // venue config catches up in the DB.
+  const initialCabinets = useMemo(() => buildCabinetList(venue), [venue]);
+  const [cabinetList, setCabinetList] = useState(initialCabinets);
   const [cabinetIO, setCabinetIO] = useState(() =>
-    Object.fromEntries(cabinetList.map(c => [c.key, { in: '', out: '' }]))
+    Object.fromEntries(initialCabinets.map(c => [c.key, { in: '', out: '' }]))
   );
   const setCabinetCell = (key, col, val) => {
     setCabinetIO(p => ({ ...p, [key]: { ...p[key], [col]: val } }));
+  };
+  // Append a new blank cabinet. Key is unique-by-counter to avoid collisions
+  // even if a row was removed and re-added in the same session.
+  const cabKeyCounter = useRef(initialCabinets.length);
+  const addCabinet = (type = '') => {
+    const idx = cabKeyCounter.current++;
+    const newKey = `cab_extra_${idx}`;
+    const nextLabel = String(cabinetList.length + 1);
+    setCabinetList(p => [...p, { key: newKey, label: nextLabel, type }]);
+    setCabinetIO(p => ({ ...p, [newKey]: { in: '', out: '' } }));
+  };
+  const removeCabinet = (key) => {
+    setCabinetList(p => p.filter(c => c.key !== key));
+    setCabinetIO(p => {
+      const { [key]: _drop, ...rest } = p;
+      return rest;
+    });
   };
 
   // Bills collected breakdown — count of bills, not $.
@@ -482,7 +501,7 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                 </span>
               )}
             </div>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:560}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13,minWidth:600}}>
               <thead>
                 <tr style={{background:'#FAD6A5'}}>
                   <th style={{...th,textAlign:'left'}}>Cabinet</th>
@@ -490,6 +509,7 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                   <th style={{...th,textAlign:'right'}}>Total IN</th>
                   <th style={{...th,textAlign:'right'}}>Total OUT</th>
                   <th style={{...th,textAlign:'right'}}>Net</th>
+                  <th style={{...th,width:36}}></th>
                 </tr>
               </thead>
               <tbody>
@@ -497,14 +517,16 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                   <tr key={r.key} style={{borderTop:'1px solid #F5EBE0'}}>
                     <td style={td}><b>#{r.label}</b></td>
                     <td style={td}>
-                      {r.type ? (
-                        <span style={{
-                          fontSize:10, fontWeight:900, letterSpacing:1, textTransform:'uppercase',
-                          padding:'3px 8px', borderRadius:10, border:'1.5px solid #000',
-                          background: r.type === 'cardinal' ? '#FFF4D6' : r.type === 'redplum' ? '#FFE0E0' : '#EEE',
-                          color: '#3D2E1F',
-                        }}>{r.type}</span>
-                      ) : <span style={{color:'#6B5A4E',fontStyle:'italic',fontSize:11}}>—</span>}
+                      <select value={r.type || ''}
+                        onChange={e => setCabinetList(p => p.map(c => c.key === r.key ? {...c, type: e.target.value} : c))}
+                        style={{...input, padding:'5px 8px', fontSize:11, fontWeight:800, letterSpacing:0.5, textTransform:'uppercase',
+                          background: r.type === 'cardinal' ? '#FFF4D6' : r.type === 'redplum' ? '#FFE0E0' : '#FFF',
+                          minWidth:110}}>
+                        <option value="" style={{color:'#3D2E1F'}}>— (no type)</option>
+                        <option value="cardinal" style={{color:'#3D2E1F'}}>Cardinal</option>
+                        <option value="redplum"  style={{color:'#3D2E1F'}}>Red Plum</option>
+                        <option value="other"    style={{color:'#3D2E1F'}}>Other</option>
+                      </select>
                     </td>
                     <td style={td}>
                       <input type="number" step="0.01" inputMode="decimal"
@@ -522,6 +544,17 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                       color: r.net < 0 ? '#A03030' : r.net > 0 ? '#234A12' : '#6B5A4E'}}>
                       {money(r.net)}
                     </td>
+                    <td style={{...td,textAlign:'center',padding:'4px 8px'}}>
+                      {cabinetList.length > 1 && (
+                        <button onClick={() => removeCabinet(r.key)}
+                          title="Remove this cabinet"
+                          style={{border:'1.5px solid #A03030',background:'transparent',color:'#A03030',
+                            width:26, height:26, borderRadius:6, fontSize:14, fontWeight:900,
+                            cursor:'pointer', lineHeight:1, padding:0}}>
+                          ×
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -538,9 +571,27 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                     color: derived.net < 0 ? '#A03030' : '#234A12'}}>
                     {money(derived.net)}
                   </td>
+                  <td style={td}></td>
                 </tr>
               </tfoot>
             </table>
+            <div style={{marginTop:12,display:'flex',gap:8,flexWrap:'wrap'}}>
+              <button onClick={() => addCabinet('')}
+                style={{padding:'8px 14px', fontSize:12, fontWeight:900, letterSpacing:1.2, textTransform:'uppercase',
+                  border:'2px dashed #000', borderRadius:7, background:'#FFFDF9', color:'#3D2E1F', cursor:'pointer'}}>
+                + Add cabinet
+              </button>
+              <button onClick={() => addCabinet('cardinal')}
+                style={{padding:'8px 14px', fontSize:12, fontWeight:900, letterSpacing:1.2, textTransform:'uppercase',
+                  border:'2px dashed #000', borderRadius:7, background:'#FFF4D6', color:'#3D2E1F', cursor:'pointer'}}>
+                + Cardinal
+              </button>
+              <button onClick={() => addCabinet('redplum')}
+                style={{padding:'8px 14px', fontSize:12, fontWeight:900, letterSpacing:1.2, textTransform:'uppercase',
+                  border:'2px dashed #000', borderRadius:7, background:'#FFE0E0', color:'#3D2E1F', cursor:'pointer'}}>
+                + Red Plum
+              </button>
+            </div>
           </div>
         </div>
 
