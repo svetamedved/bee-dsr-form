@@ -245,13 +245,23 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
       (s, b) => s + num(bills[b.key]) * b.value, 0
     );
 
-    // CRT totals by column
+    // CRT totals by column. Final auto-derives as Actual + Added unless the
+    // collector explicitly typed a different value in the Final cell.
     const crtTotals = { says: 0, actual: 0, added: 0, final: 0 };
+    const crtFinals = {}; // per-row computed final, used by the renderer too
     for (const r of CRT_ROWS) {
-      crtTotals.says   += num(crt[r.key].says);
-      crtTotals.actual += num(crt[r.key].actual);
-      crtTotals.added  += num(crt[r.key].added);
-      crtTotals.final  += num(crt[r.key].final);
+      const says   = num(crt[r.key].says);
+      const actual = num(crt[r.key].actual);
+      const added  = num(crt[r.key].added);
+      const finalRaw = crt[r.key].final;
+      // If user left Final blank, auto-derive. Any explicit entry (including 0)
+      // wins so collectors can override when the math doesn't tie.
+      const final = (finalRaw === '' || finalRaw == null) ? (actual + added) : num(finalRaw);
+      crtFinals[r.key] = final;
+      crtTotals.says   += says;
+      crtTotals.actual += actual;
+      crtTotals.added  += added;
+      crtTotals.final  += final;
     }
     // CRT over/short: Actual vs Says (positive = over, negative = short)
     const crtDiff = crtTotals.actual - crtTotals.says;
@@ -304,7 +314,7 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
 
     return {
       cabinetRows, totalIn, totalOut, net,
-      billsTotal, crtTotals, crtDiff,
+      billsTotal, crtTotals, crtFinals, crtDiff,
       rejectDiff,
       waterfall, beTotal, locationTotal,
       depositDiff,
@@ -633,19 +643,38 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                 </tr>
               </thead>
               <tbody>
-                {CRT_ROWS.map(r => (
-                  <tr key={r.key} style={{borderTop:'1px solid #F5EBE0'}}>
-                    <td style={td}><b>{r.label}</b></td>
-                    {['says','actual','added','final'].map(col => (
-                      <td key={col} style={td}>
+                {CRT_ROWS.map(r => {
+                  const finalRaw = crt[r.key].final;
+                  const finalAuto = num(crt[r.key].actual) + num(crt[r.key].added);
+                  const finalIsAuto = (finalRaw === '' || finalRaw == null);
+                  return (
+                    <tr key={r.key} style={{borderTop:'1px solid #F5EBE0'}}>
+                      <td style={td}><b>{r.label}</b></td>
+                      {['says','actual','added'].map(col => (
+                        <td key={col} style={td}>
+                          <input type="number" step="0.01" inputMode="decimal"
+                            value={crt[r.key][col]}
+                            onChange={e => setCrtCell(r.key, col, e.target.value)}
+                            style={{...input,textAlign:'right',width:'100%'}} placeholder="0.00"/>
+                        </td>
+                      ))}
+                      <td style={td}>
                         <input type="number" step="0.01" inputMode="decimal"
-                          value={crt[r.key][col]}
-                          onChange={e => setCrtCell(r.key, col, e.target.value)}
-                          style={{...input,textAlign:'right',width:'100%'}} placeholder="0.00"/>
+                          value={finalIsAuto ? '' : crt[r.key].final}
+                          onChange={e => setCrtCell(r.key, 'final', e.target.value)}
+                          placeholder={finalIsAuto && (crt[r.key].actual !== '' || crt[r.key].added !== '')
+                            ? finalAuto.toFixed(2)
+                            : '0.00'}
+                          title="Auto-fills as Actual + Added. Type a value to override."
+                          style={{...input, textAlign:'right', width:'100%',
+                            background: finalIsAuto ? '#F5F0E0' : '#FFF',
+                            color: finalIsAuto ? '#6B5A4E' : '#3D2E1F',
+                            fontStyle: finalIsAuto ? 'italic' : 'normal',
+                          }}/>
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr style={{background:'#FBF2D8',borderTop:'2px solid #000'}}>
