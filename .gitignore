@@ -28,3 +28,22 @@ dist-test*
 
 # local backups
 *.bak
+
+# build/output dirs
+dist-verify*/
+dist-cabinets/
+dist-dsr-cabs/
+dist-add-cab/
+dist-dedup-fix/
+dist-final-auto/
+dist-receipt-ocr/
+dist-token-fix/
+dist-test*/
+
+# data dumps + working files
+cardinal-recon-dump*.json
+.Rhistory
+MEETING_BRIEF.md
+
+# generated decks (kept locally)
+presentations/
