@@ -185,6 +185,106 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Receipt OCR auto-fill — collector uploads photos of Cardinal Xpress audit
+  // reports or Red Plum daily summaries. Server runs OCR, we auto-fill the
+  // matching cabinet row's IN / OUT and add the bill counts to the venue
+  // bills aggregate.
+  const [receiptResults, setReceiptResults] = useState([]); // {filename, status, reportType, parsed, applied, error}
+  const [uploadingReceipts, setUploadingReceipts] = useState(false);
+  const cardinalInputRef = useRef(null);
+  const redplumInputRef  = useRef(null);
+
+  // Apply one parsed receipt's data to the form. Returns the cabinet key it
+  // filled (existing match) or created (no match). Does cabinet matching by
+  // label first; falls back to creating a new cabinet row pre-typed for the
+  // receipt's vendor.
+  const applyReceiptToForm = (parsed, reportType) => {
+    if (!parsed) return null;
+    const isCardinal = reportType === 'cardinal_collect';
+    const cabIn  = num(isCardinal ? parsed.collect_in_total          : parsed.daily_in);
+    const cabOut = num(isCardinal ? parsed.collect_out_ticket_amount : parsed.daily_paid_out);
+    const label  = String(parsed.cabinet_label_raw ?? '').trim();
+    const vendorType = isCardinal ? 'cardinal' : 'redplum';
+
+    // Match by label + (no type set OR matching type)
+    let target = cabinetList.find(c =>
+      String(c.label).trim().toLowerCase() === label.toLowerCase() &&
+      (!c.type || c.type === vendorType)
+    );
+
+    if (target) {
+      setCabinetIO(p => ({ ...p, [target.key]: {
+        in:  cabIn  ? cabIn.toFixed(2)  : '',
+        out: cabOut ? cabOut.toFixed(2) : '',
+      }}));
+      // Also tag the type if it was blank
+      if (!target.type) {
+        setCabinetList(p => p.map(c => c.key === target.key ? { ...c, type: vendorType } : c));
+      }
+    } else {
+      const newKey = `cab_receipt_${cabKeyCounter.current++}`;
+      const newCab = { key: newKey, label: label || String(cabinetList.length + 1), type: vendorType };
+      setCabinetList(p => [...p, newCab]);
+      setCabinetIO(p => ({ ...p, [newKey]: {
+        in:  cabIn  ? cabIn.toFixed(2)  : '',
+        out: cabOut ? cabOut.toFixed(2) : '',
+      }}));
+      target = newCab;
+    }
+
+    // Add bill COUNTS to venue aggregate (additive — multiple receipts sum)
+    if (parsed.bills) {
+      setBills(prev => {
+        const next = { ...prev };
+        ['d1','d5','d10','d20','d50','d100'].forEach(k => {
+          const cur = num(next[k]);
+          const add = num(parsed.bills[k]);
+          if (add > 0) next[k] = String(cur + add);
+        });
+        return next;
+      });
+    }
+
+    return target.key;
+  };
+
+  const uploadReceipts = async (files, reportType) => {
+    if (!files.length) return;
+    setUploadingReceipts(true);
+    const tok = localStorage.getItem('bee_token');
+    for (const f of files) {
+      try {
+        const fd = new FormData();
+        fd.append('image', f);
+        fd.append('report_type', reportType);
+        fd.append('location_id', String(venue.id));
+        fd.append('report_date', reportDate);
+        const res = await fetch('/api/images', {
+          method: 'POST',
+          headers: tok ? { Authorization: `Bearer ${tok}` } : {},
+          body: fd,
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || j.message || res.statusText);
+        const parsed = j.parsed_json ? (typeof j.parsed_json === 'string' ? JSON.parse(j.parsed_json) : j.parsed_json) : null;
+        const filledKey = applyReceiptToForm(parsed, reportType);
+        setReceiptResults(p => [...p, {
+          filename: f.name,
+          status: parsed ? 'parsed' : 'no_data',
+          reportType, parsed,
+          applied: !!filledKey,
+        }]);
+        if (j.id) setImageIds(p => [...p, j.id]);
+      } catch (ex) {
+        setReceiptResults(p => [...p, {
+          filename: f.name, status: 'error', reportType,
+          error: String(ex.message || ex),
+        }]);
+      }
+    }
+    setUploadingReceipts(false);
+  };
+
   // Split override (one-off)
   const [overrideOn, setOverrideOn] = useState(false);
   const [overrideSplit, setOverrideSplit] = useState(() => defaultSplit(venue));
@@ -492,6 +592,72 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
                 {overrideOn && <span style={{marginLeft:8,color:'#A03030',fontWeight:900}}>(OVERRIDDEN)</span>}
               </div>
             </Field>
+          </div>
+        </div>
+
+        {/* 1.5 Receipt OCR auto-fill — Cardinal + Red Plum */}
+        <div style={card}>
+          <div style={cardHeader}>Auto-fill from receipt photos</div>
+          <div style={{padding:16,display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{fontSize:12,color:'#6B5A4E',lineHeight:1.5}}>
+              Snap or upload thermal-printer audit receipts from each cabinet. Each receipt
+              auto-fills the matching cabinet's <b>Total IN / OUT</b> and adds its bill counts
+              to the venue total. Multiple receipts sum together.
+            </div>
+            <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center'}}>
+              <input ref={cardinalInputRef} type="file" accept="image/*" multiple style={{display:'none'}}
+                onChange={(e) => { const fs = Array.from(e.target.files || []); uploadReceipts(fs, 'cardinal_collect'); e.target.value = ''; }}/>
+              <input ref={redplumInputRef} type="file" accept="image/*" multiple style={{display:'none'}}
+                onChange={(e) => { const fs = Array.from(e.target.files || []); uploadReceipts(fs, 'redplum_collect'); e.target.value = ''; }}/>
+              <button onClick={() => cardinalInputRef.current?.click()} disabled={uploadingReceipts}
+                style={{padding:'8px 14px',fontSize:12,fontWeight:900,letterSpacing:1.2,textTransform:'uppercase',
+                  border:'2px solid #000',borderRadius:7,background:'#FFF4D6',color:'#3D2E1F',
+                  cursor: uploadingReceipts ? 'wait' : 'pointer'}}>
+                + Cardinal receipts
+              </button>
+              <button onClick={() => redplumInputRef.current?.click()} disabled={uploadingReceipts}
+                style={{padding:'8px 14px',fontSize:12,fontWeight:900,letterSpacing:1.2,textTransform:'uppercase',
+                  border:'2px solid #000',borderRadius:7,background:'#FFE0E0',color:'#3D2E1F',
+                  cursor: uploadingReceipts ? 'wait' : 'pointer'}}>
+                + Red Plum receipts
+              </button>
+              {uploadingReceipts && <span style={{color:'#6B5A4E',fontStyle:'italic',fontSize:12}}>Reading receipt(s)…</span>}
+            </div>
+            {receiptResults.length > 0 && (
+              <div style={{display:'flex',flexDirection:'column',gap:6,marginTop:4}}>
+                {receiptResults.map((r, i) => {
+                  const isErr = r.status === 'error';
+                  const isCard = r.reportType === 'cardinal_collect';
+                  const inAmt  = r.parsed && (isCard ? r.parsed.collect_in_total          : r.parsed.daily_in);
+                  const outAmt = r.parsed && (isCard ? r.parsed.collect_out_ticket_amount : r.parsed.daily_paid_out);
+                  return (
+                    <div key={i} style={{
+                      display:'flex',gap:8,alignItems:'center',padding:'6px 10px',borderRadius:6,flexWrap:'wrap',
+                      background: isErr ? '#FDEDED' : r.applied ? '#EAF5DC' : '#FBF2D8',
+                      border: `1.5px solid ${isErr ? '#A03030' : r.applied ? '#4A7A2D' : '#C98A1B'}`,
+                      fontSize:11,
+                    }}>
+                      <span style={{fontWeight:900,fontSize:9,letterSpacing:1,textTransform:'uppercase',
+                        padding:'2px 6px',borderRadius:4,
+                        background: isCard ? '#FFF4D6' : '#FFE0E0',
+                        border:'1.5px solid #000',color:'#3D2E1F'}}>
+                        {isCard ? 'Cardinal' : 'Red Plum'}
+                      </span>
+                      <span style={{fontWeight:700}}>{r.filename}</span>
+                      {isErr ? (
+                        <span style={{color:'#A03030',fontWeight:700}}>✗ {r.error}</span>
+                      ) : r.applied && r.parsed ? (
+                        <span style={{color:'#234A12',fontWeight:700}}>
+                          ✓ Cabinet #{r.parsed.cabinet_label_raw} · IN {money(inAmt)} · OUT {money(outAmt)}
+                        </span>
+                      ) : (
+                        <span style={{color:'#6B4A0A'}}>Parsed but not auto-applied</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

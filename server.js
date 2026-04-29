@@ -1279,6 +1279,78 @@ Return JSON with:
 - net_rp: overall Net RP total
 Respond with JSON only.`,
   },
+  cardinal_collect: {
+    label: 'Cardinal Xpress Terminal Audit Report',
+    prompt: `This is a thermal-printer Cardinal Xpress Terminal Audit Report from a single cabinet. The header reads "CARDINAL XPRESS TERMINAL AUDIT REPORT". Extract the cabinet identity and the period-side numbers (NOT lifetime).
+
+Schema (numbers as numbers, strings as strings, null if missing):
+- vendor: literal "cardinal"
+- venue_name_raw: the venue token from the Location line, e.g. "LUCKY DRAGON 20" → "LUCKY DRAGON"
+- cabinet_label_raw: the cabinet number/suffix from the Location line, e.g. "LUCKY DRAGON 20" → "20"
+- hardware_id: the Serial No, e.g. "GEN-07643"
+- report_date: ISO date the receipt was printed (YYYY-MM-DD)
+- period_start: ISO date the period started
+- period_days: integer number of days the period covers
+- gameplay_period_in: ==GAMEPLAY== "IN" Period column (number)
+- gameplay_period_paid: ==GAMEPLAY== "PAID" Period column
+- gameplay_period_net_win: ==GAMEPLAY== "NET WIN" Period column
+- gameplay_period_out_device: ==GAMEPLAY== "OUT (DEVICE)" Period column
+- gameplay_period_out_attend: ==GAMEPLAY== "OUT (ATTEND)" Period column
+- collect_in_total: ==COLLECT IN== Total Amount (this is the cabinet total IN for the form)
+- collect_in_qty: ==COLLECT IN== Total Qty
+- collect_out_ticket_amount: ==COLLECT OUT== TICKET Amount (this is the cabinet total OUT)
+- collect_out_ticket_qty: ==COLLECT OUT== TICKET Qty
+- bills: object with numeric Qty per denomination, all six required (use 0 if absent):
+  - d1: $1 row Qty
+  - d2: $2 row Qty
+  - d5: $5 row Qty
+  - d10: $10 row Qty
+  - d20: $20 row Qty
+  - d50: $50 row Qty
+  - d100: $100 row Qty
+
+Sanity checks (for your own reasoning, do NOT include in output):
+- bills.d1*1 + d2*2 + d5*5 + d10*10 + d20*20 + d50*50 + d100*100 should equal collect_in_total
+- collect_in_total - collect_out_ticket_amount should equal gameplay_period_out_device
+
+Respond with JSON only.`,
+  },
+  redplum_collect: {
+    label: 'Red Plum Cabinet Daily Summary',
+    prompt: `This is a thermal-printer Red Plum Games daily summary from a single cabinet. The header reads "REDPLUM GAMES" with a venue name above it (e.g. "BETHANY 3"). Three columns are shown: ARCHIVE, WEEKLY, DAILY. Always extract the DAILY column values.
+
+Schema (numbers as numbers, strings as strings, null if missing):
+- vendor: literal "redplum"
+- venue_name_raw: the venue token from the line above "REDPLUM GAMES", e.g. "BETHANY 3" → "BETHANY"
+- cabinet_label_raw: the trailing number from that line, e.g. "BETHANY 3" → "3"
+- hardware_id: the hex string at the very top, e.g. "48FF74673830"
+- report_date: ISO date from the title line
+- period_start: ISO from the LSTCLRDT row, DAILY column
+- period_end: ISO of report_date
+- daily_in: $IN > DAILY column (this is the cabinet total IN for the form)
+- daily_paid_out: $PAID OUT > DAILY column (this is the cabinet total OUT)
+- daily_held: $HELD > DAILY column
+- daily_pts_played: PTS PLAYED > DAILY column
+- daily_points_won: POINTS WON > DAILY column
+- daily_pts_earned: PTS EARNED > DAILY column
+- daily_games_pld: GAMES PLD > DAILY column (integer)
+- daily_games_won: GAMES WON > DAILY column (integer)
+- daily_hit_pct: HIT % DAILY column (number, e.g. 17.22)
+- to_collect: "TO COLLECT: $X" line (number)
+- bills: object with numeric COUNT per denomination, six fields required (0 if absent):
+  - d1: $1.00 row COUNT
+  - d5: $5.00 row COUNT
+  - d10: $10.00 row COUNT
+  - d20: $20.00 row COUNT
+  - d50: $50.00 row COUNT
+  - d100: $100.00 row COUNT
+  (Red Plum does not print a $2 row; omit it.)
+
+Sanity check (do not include in output):
+- bills.d1*1 + d5*5 + d10*10 + d20*20 + d50*50 + d100*100 should equal to_collect
+
+Respond with JSON only.`,
+  },
   ep_time: {
     label: 'EP TIME (Semnox FP) Summary',
     prompt: `This is an EP TIME / Free Points summary. Extract vendor-level points-in / prizes-out / net.
