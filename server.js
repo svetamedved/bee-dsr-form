@@ -1467,11 +1467,15 @@ app.post('/api/images', authRequired, imageUpload.single('image'), async (req, r
     );
     if (dupes.length) {
       const dup = dupes[0];
+      // Return both `parsed` and `parsed_json` for backwards compatibility with
+      // older clients; matches the shape of the fresh-OCR success branch below.
+      const parsedObj = dup.parsed_json ? JSON.parse(dup.parsed_json) : null;
       return res.json({
         id: dup.id,
         report_type: dup.report_type,
         ocr_status: dup.ocr_status,
-        parsed: dup.parsed_json ? JSON.parse(dup.parsed_json) : null,
+        parsed: parsedObj,
+        parsed_json: parsedObj,
         error: dup.ocr_error || null,
         label: REPORT_TYPES[dup.report_type]?.label || dup.report_type,
         duplicate: true,

@@ -266,7 +266,13 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
         });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || j.message || res.statusText);
-        const parsed = j.parsed_json ? (typeof j.parsed_json === 'string' ? JSON.parse(j.parsed_json) : j.parsed_json) : null;
+        // Server returns `parsed_json` on fresh OCR, `parsed` on cached duplicates.
+        // Accept either; both branches now also include the alternative key
+        // (server change), this kept for older deployments.
+        const rawParsed = j.parsed_json ?? j.parsed ?? null;
+        const parsed = rawParsed
+          ? (typeof rawParsed === 'string' ? JSON.parse(rawParsed) : rawParsed)
+          : null;
         const filledKey = applyReceiptToForm(parsed, reportType);
         setReceiptResults(p => [...p, {
           filename: f.name,
