@@ -38,7 +38,7 @@
 // from the snapshot rather than recomputing.
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { api } from './auth.js';
+import { api, getToken } from './auth.js';
 
 const TRANCHE_CAP = 2500;
 
@@ -251,7 +251,7 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
   const uploadReceipts = async (files, reportType) => {
     if (!files.length) return;
     setUploadingReceipts(true);
-    const tok = localStorage.getItem('bee_token');
+    const tok = getToken();
     for (const f of files) {
       try {
         const fd = new FormData();
@@ -435,7 +435,7 @@ export default function CollectionForm({ venue, user, onDone, onCancel }) {
       for (const f of files) {
         const fd = new FormData();
         fd.append('image', f);
-        const tok = localStorage.getItem('bee_token');
+        const tok = getToken();
         const res = await fetch('/api/images', {
           method: 'POST',
           headers: tok ? { Authorization: `Bearer ${tok}` } : {},
